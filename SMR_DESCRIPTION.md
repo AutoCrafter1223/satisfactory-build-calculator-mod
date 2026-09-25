@@ -38,6 +38,6 @@ F5-F8 can be changed from the mod's in-game configuration page.
 
 This mod does not collect telemetry or contact external services.
 
-- Source and documentation: https://github.com/gyeong-seog/satisfactory-build-calculator-mod
-- Bug reports: https://github.com/gyeong-seog/satisfactory-build-calculator-mod/issues
+- Source and documentation: https://github.com/AutoCrafter1223/satisfactory-build-calculator-mod
+- Bug reports: https://github.com/AutoCrafter1223/satisfactory-build-calculator-mod/issues
 - License: MIT

@@ -56,6 +56,6 @@ Built against Satisfactory build `502094` and Satisfactory Mod Loader `3.12.0`. 
 
 ## Support and source
 
-- Source: https://github.com/gyeong-seog/satisfactory-build-calculator-mod
-- Issues: https://github.com/gyeong-seog/satisfactory-build-calculator-mod/issues
+- Source: https://github.com/AutoCrafter1223/satisfactory-build-calculator-mod
+- Issues: https://github.com/AutoCrafter1223/satisfactory-build-calculator-mod/issues
 - License: MIT
