@@ -216,7 +216,7 @@ TArray<AFGBuildable*> ASBCGoalSubsystem::GetAmbiguousBuildablesForPlayer(AFGChar
 
 void ASBCGoalSubsystem::HandleBuildableConstructed(AFGBuildable* Buildable)
 {
-	if (!HasAuthority() || !IsValid(Buildable) || NewBuildableCandidates.Contains(Buildable))
+	if (!HasAuthority() || Goals.IsEmpty() || !IsValid(Buildable) || NewBuildableCandidates.Contains(Buildable))
 	{
 		return;
 	}
@@ -245,6 +245,13 @@ void ASBCGoalSubsystem::RefreshTracking()
 {
 	if (!HasAuthority())
 	{
+		return;
+	}
+	if (Goals.IsEmpty())
+	{
+		NewBuildableCandidates.Reset();
+		TrackedBuildables.Reset();
+		AmbiguousBuildables.Reset();
 		return;
 	}
 

@@ -38,9 +38,10 @@ private:
 	TObjectPtr<USBCCalculatorWidget> CalculatorWidget = nullptr;
 
 	int32 SelectedGoalIndex = 0;
-	float RefreshAccumulator = 0.0f;
 	bool bCalculatorToggleBound = false;
+	bool bGoalsDelegateBound = false;
 	bool bReleaseEscapeCapture = false;
+	bool bCalculatorClosedByWidget = false;
 	FInputKeyBinding* CalculatorEscapeBinding = nullptr;
 
 	bool EnsureLocalPlayer();
@@ -57,4 +58,7 @@ private:
 	void ToggleManualCompletion();
 	void RemoveSelectedGoal();
 	void LinkLookedAtBuildable();
+
+	UFUNCTION()
+	void HandleGoalsChanged();
 };

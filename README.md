@@ -4,16 +4,17 @@ In-game production calculator and construction goal tracker for Satisfactory.
 
 ## Current controls
 
-- `F8`: show or hide the compact goal HUD
-- `F6`: open or close the production calculator
-- `F7`: add the production building under the crosshair as a goal template
+- `F5`: toggle manual completion for the selected goal
+- `F6`: add the production building under the crosshair as a goal template
+- `F7`: show or hide the compact goal HUD
+- `F8`: open or close the production calculator
 - `Up` / `Down`: select a goal
 - `+` / `-`: increase or decrease the selected target count
-- `Enter`: toggle manual completion
 - `L`: manually link the building under the crosshair to the selected goal
 - `Delete`: remove the selected goal
 
 The calculator closes with `Escape` without intentionally opening the pause menu.
+All four function-key shortcuts can be changed from the mod's in-game configuration page. Press the displayed key button, then press the replacement key.
 
 ## Calculator
 
@@ -22,7 +23,7 @@ The calculator closes with `Escape` without intentionally opening the pause menu
 - Imports standard manufacturing recipes registered by other installed mods at runtime.
 - Supports per-card alternate recipes, Power Shards, and Somersloops.
 - Presents the chain as a connected parent-child card graph with building-specific accent colors.
-- Drag empty graph space with the left mouse button to pan; use the wheel vertically and `Shift` + wheel horizontally.
+- Drag empty graph space with the left mouse button to pan; use the wheel to zoom around the pointer.
 - Provides reset-view and focus-selected-card controls, plus detailed and compact card views with text expand/collapse controls.
 - Summarizes machine count, raw resources, power consumption, and generation.
 - Selecting a card and pressing the goal button adds only that card and its descendants to construction goals.

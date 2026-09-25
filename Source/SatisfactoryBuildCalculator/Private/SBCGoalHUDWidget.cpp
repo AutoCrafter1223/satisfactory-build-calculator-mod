@@ -6,6 +6,7 @@
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "SBCGoalSubsystem.h"
+#include "SBCHotkeyConfig.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -45,10 +46,9 @@ namespace
 
 TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 {
-	const bool bKorean = IsKorean();
 	TSharedRef<SWidget> Result =
 		SNew(SBox)
-		.WidthOverride(390.0f)
+		.WidthOverride(312.0f)
 		.HeightOverride(460.0f)
 		[
 			SNew(SBorder)
@@ -59,27 +59,36 @@ TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
 				[
 					SNew(STextBlock)
-					.Text(bKorean ? FText::FromString(TEXT("건설 목표")) : FText::FromString(TEXT("BUILD GOALS")))
+					.Text_Lambda([]() { return IsKorean() ? FText::FromString(TEXT("건설 목표")) : FText::FromString(TEXT("BUILD GOALS")); })
 					.ColorAndOpacity(FLinearColor(1.0f, 0.60f, 0.12f))
 					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 17))
 				]
 				+ SVerticalBox::Slot().AutoHeight()
 				[
 					SNew(STextBlock)
-					.Text(bKorean
-						? FText::FromString(TEXT("↑↓ 목표 선택 · +/- 수량 · Enter 완료/완료 취소"))
-						: FText::FromString(TEXT("↑↓ Select goal · +/- Count · Enter Complete/Undo")))
+					.Text_Lambda([this]()
+					{
+						const FString Key = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::ManualCompletion).ToString();
+						return IsKorean()
+							? FText::FromString(FString::Printf(TEXT("↑↓ 선택 · +/- 수량 · %s 완료/취소"), *Key))
+							: FText::FromString(FString::Printf(TEXT("↑↓ Select · +/- Count · %s Complete/Undo"), *Key));
+					})
 					.ColorAndOpacity(FLinearColor(0.66f, 0.73f, 0.77f))
-					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f, 0.0f, 7.0f)
 				[
 					SNew(STextBlock)
-					.Text(bKorean
-						? FText::FromString(TEXT("F7 바라본 시설 추가 · L 시설 연결 · Delete 삭제 · F8 숨기기"))
-						: FText::FromString(TEXT("F7 Add aimed building · L Link · Delete Remove · F8 Hide")))
+					.Text_Lambda([this]()
+					{
+						const FString AddKey = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString();
+						const FString HudKey = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::ToggleGoalHUD).ToString();
+						return IsKorean()
+							? FText::FromString(FString::Printf(TEXT("%s 시설 추가 · L 연결 · Del 삭제 · %s 숨김"), *AddKey, *HudKey))
+							: FText::FromString(FString::Printf(TEXT("%s Add · L Link · Del Remove · %s Hide"), *AddKey, *HudKey));
+					})
 					.ColorAndOpacity(FLinearColor(0.53f, 0.63f, 0.68f))
-					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
 				]
 				+ SVerticalBox::Slot().FillHeight(1.0f)
 				[
@@ -157,8 +166,11 @@ void USBCGoalHUDWidget::RefreshGoals()
 		GoalListBox->AddSlot().AutoHeight()
 		[
 			SNew(STextBlock)
-			.Text(bKorean ? FText::FromString(TEXT("생산시설을 조준하고 F7을 눌러 목표를 추가하세요."))
-				: FText::FromString(TEXT("Aim at a production building and press F7 to add a goal.")))
+			.Text(FText::FromString(bKorean
+				? FString::Printf(TEXT("생산시설을 조준하고 %s을 눌러 목표를 추가하세요."),
+					*SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString())
+				: FString::Printf(TEXT("Aim at a production building and press %s to add a goal."),
+					*SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString())))
 			.ColorAndOpacity(FLinearColor(0.72f, 0.78f, 0.82f))
 			.AutoWrapText(true)
 			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))

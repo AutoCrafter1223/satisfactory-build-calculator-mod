@@ -4,6 +4,7 @@
 #include "Internationalization/Internationalization.h"
 #include "SatisfactoryBuildCalculator.h"
 #include "SBCProductionCalculator.h"
+#include "SBCHotkeyConfig.h"
 #include "FGRecipe.h"
 #include "FGRecipeManager.h"
 #include "Resources/FGItemDescriptor.h"
@@ -59,6 +60,7 @@ public:
 			ContentBox->SetHeightOverride(GraphSize.Y);
 		}
 		ClampPan();
+		ApplyPan();
 		Invalidate(EInvalidateWidgetReason::Layout);
 	}
 
@@ -82,6 +84,7 @@ public:
 
 	void ResetView()
 	{
+		Zoom = 1.0f;
 		PanOffset = FVector2D(24.0f, 24.0f);
 		ClampPan();
 		ApplyPan();
@@ -91,7 +94,7 @@ public:
 	{
 		if (const FVector2D* Center = CardCenters.Find(NodeId))
 		{
-			PanOffset = LastViewportSize * 0.5f - *Center;
+			PanOffset = LastViewportSize * 0.5f - *Center * Zoom;
 			ClampPan();
 			ApplyPan();
 		}
@@ -130,9 +133,10 @@ public:
 	virtual FReply OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
 		LastViewportSize = MyGeometry.GetLocalSize();
-		const float Amount = MouseEvent.GetWheelDelta() * 54.0f;
-		if (MouseEvent.IsShiftDown()) PanOffset.X += Amount;
-		else PanOffset.Y += Amount;
+		const FVector2D Cursor = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+		const FVector2D ContentPoint = (Cursor - PanOffset) / Zoom;
+		Zoom = FMath::Clamp(Zoom + MouseEvent.GetWheelDelta() * 0.08f, 0.65f, 1.20f);
+		PanOffset = Cursor - ContentPoint * Zoom;
 		ClampPan();
 		ApplyPan();
 		return FReply::Handled();
@@ -150,8 +154,8 @@ public:
 		const_cast<SSBCPanGraph*>(this)->LastViewportSize = AllottedGeometry.GetLocalSize();
 		for (const TPair<FVector2D, FVector2D>& Connection : Connections)
 		{
-			const FVector2D Start = Connection.Key + PanOffset;
-			const FVector2D End = Connection.Value + PanOffset;
+			const FVector2D Start = Connection.Key * Zoom + PanOffset;
+			const FVector2D End = Connection.Value * Zoom + PanOffset;
 			const float MiddleX = (Start.X + End.X) * 0.5f;
 			TArray<FVector2D> Points{Start, FVector2D(MiddleX, Start.Y), FVector2D(MiddleX, End.Y), End};
 			FSlateDrawElement::MakeLines(
@@ -175,23 +179,38 @@ private:
 	FVector2D GraphSize = FVector2D(1000.0f, 650.0f);
 	FVector2D LastViewportSize = FVector2D(1000.0f, 650.0f);
 	FVector2D PanOffset = FVector2D(24.0f, 24.0f);
+	float Zoom = 1.0f;
 	bool bDragging = false;
 
 	void ApplyPan()
 	{
-		if (ContentBox.IsValid()) ContentBox->SetRenderTransform(FSlateRenderTransform(PanOffset));
+		if (ContentBox.IsValid())
+		{
+			ContentBox->SetRenderTransform(FSlateRenderTransform(FScale2D(Zoom), PanOffset));
+		}
 		Invalidate(EInvalidateWidgetReason::Paint);
 	}
 
 	void ClampPan()
 	{
 		const float Margin = 80.0f;
-		const float MinX = GraphSize.X <= LastViewportSize.X
-			? Margin : LastViewportSize.X - GraphSize.X - Margin;
-		const float MinY = GraphSize.Y <= LastViewportSize.Y
-			? Margin : LastViewportSize.Y - GraphSize.Y - Margin;
-		PanOffset.X = FMath::Clamp(PanOffset.X, MinX, Margin);
-		PanOffset.Y = FMath::Clamp(PanOffset.Y, MinY, Margin);
+		const FVector2D ScaledSize = GraphSize * Zoom;
+		if (ScaledSize.X <= LastViewportSize.X)
+		{
+			PanOffset.X = (LastViewportSize.X - ScaledSize.X) * 0.5f;
+		}
+		else
+		{
+			PanOffset.X = FMath::Clamp(PanOffset.X, LastViewportSize.X - ScaledSize.X - Margin, Margin);
+		}
+		if (ScaledSize.Y <= LastViewportSize.Y)
+		{
+			PanOffset.Y = (LastViewportSize.Y - ScaledSize.Y) * 0.5f;
+		}
+		else
+		{
+			PanOffset.Y = FMath::Clamp(PanOffset.Y, LastViewportSize.Y - ScaledSize.Y - Margin, Margin);
+		}
 	}
 };
 
@@ -344,7 +363,13 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 						[
 							SNew(STextBlock)
-							.Text(Text(TEXT("F6 / ESC 닫기"), TEXT("F6 / ESC Close")))
+							.Text_Lambda([this]()
+							{
+								const FString Key = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::ToggleCalculator).ToString();
+								return bKorean
+									? FText::FromString(FString::Printf(TEXT("%s / ESC 닫기"), *Key))
+									: FText::FromString(FString::Printf(TEXT("%s / ESC Close"), *Key));
+							})
 							.ColorAndOpacity(FLinearColor(0.62f, 0.72f, 0.77f))
 							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
 						]
@@ -480,7 +505,8 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 
 FReply USBCCalculatorWidget::NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
-	if (InKeyEvent.GetKey() == EKeys::Escape)
+	if (InKeyEvent.GetKey() == EKeys::Escape ||
+		InKeyEvent.GetKey() == SBCHotkeys::Get(this, ESBCHotkeyAction::ToggleCalculator))
 	{
 		OnRequestClose.ExecuteIfBound();
 		return FReply::Handled();
@@ -883,45 +909,37 @@ void USBCCalculatorWidget::BuildResultGraph(const TSharedPtr<FSBCProductionNode>
 	const float CardHeight = bCompactView ? 105.0f : 190.0f;
 	const float HorizontalGap = 74.0f;
 	const float VerticalGap = 26.0f;
-	float NextLeafCenterY = 40.0f + CardHeight * 0.5f;
 	int32 MaxDepth = 0;
 
-	TFunction<float(const TSharedPtr<FSBCProductionNode>&, int32, const FString&, const FString&)> LayoutNode;
-	LayoutNode = [this, &LayoutNode, &Entries, &Positions, &NextLeafCenterY, &MaxDepth,
+	TFunction<float(const TSharedPtr<FSBCProductionNode>&, int32, const FString&, const FString&, float)> LayoutNode;
+	LayoutNode = [this, &LayoutNode, &Entries, &Positions, &MaxDepth,
 		CardWidth, CardHeight, HorizontalGap, VerticalGap](
 			const TSharedPtr<FSBCProductionNode>& Node,
 			int32 Depth,
 			const FString& ParentName,
-			const FString& ParentNodeId) -> float
+			const FString& ParentNodeId,
+			float TopY) -> float
 	{
 		MaxDepth = FMath::Max(MaxDepth, Depth);
-		TArray<float> ChildCenters;
+		const FVector2D Position(40.0f + Depth * (CardWidth + HorizontalGap), TopY);
+		Positions.Add(Node->NodeId, Position);
+		Entries.Add({Node, ParentName, ParentNodeId, Position});
+
+		float ChildrenHeight = 0.0f;
 		if (!CollapsedNodeIds.Contains(Node->NodeId))
 		{
 			for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
 			{
-				ChildCenters.Add(LayoutNode(Child, Depth + 1, Node->ItemName, Node->NodeId));
+				ChildrenHeight += LayoutNode(Child, Depth + 1, Node->ItemName, Node->NodeId, TopY + ChildrenHeight);
 			}
 		}
-		float CenterY = NextLeafCenterY;
-		if (ChildCenters.IsEmpty())
-		{
-			NextLeafCenterY += CardHeight + VerticalGap;
-		}
-		else
-		{
-			CenterY = (ChildCenters[0] + ChildCenters.Last()) * 0.5f;
-		}
-		const FVector2D Position(40.0f + Depth * (CardWidth + HorizontalGap), CenterY - CardHeight * 0.5f);
-		Positions.Add(Node->NodeId, Position);
-		Entries.Add({Node, ParentName, ParentNodeId, Position});
-		return CenterY;
+		return FMath::Max(CardHeight + VerticalGap, ChildrenHeight);
 	};
 
-	LayoutNode(Root, 0, FString(), FString());
+	const float TreeHeight = LayoutNode(Root, 0, FString(), FString(), 40.0f);
 	const FVector2D GraphSize(
 		80.0f + (MaxDepth + 1) * CardWidth + MaxDepth * HorizontalGap,
-		FMath::Max(260.0f, NextLeafCenterY + CardHeight * 0.5f + 40.0f));
+		FMath::Max(260.0f, TreeHeight - VerticalGap + 80.0f));
 	ResultGraph->ResetGraph(GraphSize);
 	for (const FGraphEntry& Entry : Entries)
 	{

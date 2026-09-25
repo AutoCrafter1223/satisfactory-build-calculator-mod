@@ -12,6 +12,7 @@
 #include "SBCCalculatorWidget.h"
 #include "SBCGoalHUDWidget.h"
 #include "SBCGoalSubsystem.h"
+#include "SBCHotkeyConfig.h"
 #include "SBCRemoteCallObject.h"
 
 ASBCPlayerGoalHUD::ASBCPlayerGoalHUD()
@@ -43,13 +44,20 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		EnableInput(PlayerController);
 		if (InputComponent)
 		{
-			InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &ASBCPlayerGoalHUD::ToggleCalculatorWidget);
 			FInputKeyBinding& EscapeBinding = InputComponent->BindKey(
 				EKeys::Escape, IE_Pressed, this, &ASBCPlayerGoalHUD::CloseCalculatorWidget);
 			EscapeBinding.bConsumeInput = false;
 			CalculatorEscapeBinding = &EscapeBinding;
 			InputComponent->Priority = 1000;
 			bCalculatorToggleBound = true;
+		}
+	}
+	if (!bGoalsDelegateBound)
+	{
+		if (ASBCGoalSubsystem* Goals = ASBCGoalSubsystem::Get(this))
+		{
+			Goals->OnGoalsChanged.AddUniqueDynamic(this, &ASBCPlayerGoalHUD::HandleGoalsChanged);
+			bGoalsDelegateBound = true;
 		}
 	}
 
@@ -60,7 +68,8 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		{
 			GoalWidget->SetObservedPlayer(PlayerCharacter);
 			GoalWidget->SetPositionInViewport(FVector2D(28.0f, 190.0f), false);
-			GoalWidget->AddToViewport(50);
+			// Keep the compact tracker below Satisfactory's construction and menu layers.
+			GoalWidget->AddToViewport(-10);
 		}
 	}
 	if (!IsValid(CalculatorWidget))
@@ -135,31 +144,60 @@ void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)
 	{
 		return;
 	}
-
-	if (PlayerController->WasInputKeyJustPressed(EKeys::F8)) ToggleWidget();
-	if (PlayerController->WasInputKeyJustPressed(EKeys::F7)) AddLookedAtGoal();
-	if (PlayerController->WasInputKeyJustPressed(EKeys::Up)) ChangeSelection(-1);
-	if (PlayerController->WasInputKeyJustPressed(EKeys::Down)) ChangeSelection(1);
-	if (PlayerController->WasInputKeyJustPressed(EKeys::Add) || PlayerController->WasInputKeyJustPressed(EKeys::Equals)) ChangeTargetCount(1);
-	if (PlayerController->WasInputKeyJustPressed(EKeys::Subtract) || PlayerController->WasInputKeyJustPressed(EKeys::Hyphen)) ChangeTargetCount(-1);
-	if (PlayerController->WasInputKeyJustPressed(EKeys::Enter)) ToggleManualCompletion();
-	if (PlayerController->WasInputKeyJustPressed(EKeys::Delete)) RemoveSelectedGoal();
-	if (PlayerController->WasInputKeyJustPressed(EKeys::L)) LinkLookedAtBuildable();
-	if (CalculatorWidget && CalculatorWidget->GetVisibility() == ESlateVisibility::Visible)
+	if (bCalculatorClosedByWidget)
 	{
-		UpdateCalculatorLayout();
+		bCalculatorClosedByWidget = false;
+		return;
 	}
 
-	RefreshAccumulator += DeltaSeconds;
-	if (RefreshAccumulator >= 0.25f)
+	const FKey CalculatorKey = SBCHotkeys::Get(this, ESBCHotkeyAction::ToggleCalculator);
+	const bool bCalculatorOpen = CalculatorWidget && CalculatorWidget->GetVisibility() == ESlateVisibility::Visible;
+	if (PlayerController->WasInputKeyJustPressed(CalculatorKey))
 	{
-		RefreshAccumulator = 0.0f;
-		GoalWidget->RefreshGoals();
+		ToggleCalculatorWidget();
+		return;
+	}
+	if (bCalculatorOpen)
+	{
+		UpdateCalculatorLayout();
+		return;
+	}
+
+	const FKey GoalHudKey = SBCHotkeys::Get(this, ESBCHotkeyAction::ToggleGoalHUD);
+	const FKey AddAimedKey = SBCHotkeys::Get(this, ESBCHotkeyAction::AddAimedBuilding);
+	const FKey ManualKey = SBCHotkeys::Get(this, ESBCHotkeyAction::ManualCompletion);
+	if (PlayerController->WasInputKeyJustPressed(GoalHudKey))
+	{
+		ToggleWidget();
+	}
+	else if (PlayerController->WasInputKeyJustPressed(AddAimedKey))
+	{
+		AddLookedAtGoal();
+	}
+
+	const bool bGoalHudVisible = GoalWidget && GoalWidget->GetVisibility() != ESlateVisibility::Collapsed;
+	if (bGoalHudVisible)
+	{
+		if (PlayerController->WasInputKeyJustPressed(ManualKey)) ToggleManualCompletion();
+		if (PlayerController->WasInputKeyJustPressed(EKeys::Up)) ChangeSelection(-1);
+		if (PlayerController->WasInputKeyJustPressed(EKeys::Down)) ChangeSelection(1);
+		if (PlayerController->WasInputKeyJustPressed(EKeys::Add) || PlayerController->WasInputKeyJustPressed(EKeys::Equals)) ChangeTargetCount(1);
+		if (PlayerController->WasInputKeyJustPressed(EKeys::Subtract) || PlayerController->WasInputKeyJustPressed(EKeys::Hyphen)) ChangeTargetCount(-1);
+		if (PlayerController->WasInputKeyJustPressed(EKeys::Delete)) RemoveSelectedGoal();
+		if (PlayerController->WasInputKeyJustPressed(EKeys::L)) LinkLookedAtBuildable();
 	}
 }
 
 void ASBCPlayerGoalHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (bGoalsDelegateBound)
+	{
+		if (ASBCGoalSubsystem* Goals = ASBCGoalSubsystem::Get(this))
+		{
+			Goals->OnGoalsChanged.RemoveDynamic(this, &ASBCPlayerGoalHUD::HandleGoalsChanged);
+		}
+		bGoalsDelegateBound = false;
+	}
 	if (IsValid(GoalWidget))
 	{
 		GoalWidget->RemoveFromParent();
@@ -242,6 +280,7 @@ void ASBCPlayerGoalHUD::CloseCalculatorWidget()
 {
 	if (CalculatorWidget && CalculatorWidget->GetVisibility() == ESlateVisibility::Visible)
 	{
+		bCalculatorClosedByWidget = true;
 		ToggleCalculatorWidget();
 	}
 }
@@ -341,5 +380,16 @@ void ASBCPlayerGoalHUD::LinkLookedAtBuildable()
 				RCO->ServerLinkExistingBuildable(Buildable, Goals[SelectedGoalIndex].GoalId);
 			}
 		}
+	}
+}
+
+void ASBCPlayerGoalHUD::HandleGoalsChanged()
+{
+	ASBCGoalSubsystem* Subsystem = ASBCGoalSubsystem::Get(this);
+	const int32 GoalCount = Subsystem ? Subsystem->GetGoalsForPlayer(PlayerCharacter).Num() : 0;
+	SelectedGoalIndex = GoalCount > 0 ? FMath::Clamp(SelectedGoalIndex, 0, GoalCount - 1) : 0;
+	if (GoalWidget)
+	{
+		GoalWidget->SetSelectedGoalIndex(SelectedGoalIndex);
 	}
 }
