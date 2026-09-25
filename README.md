@@ -21,7 +21,8 @@ The calculator closes with `Escape` without intentionally opening the pause menu
 - Keeps locked products visible with a text `Locked` badge.
 - Imports standard manufacturing recipes registered by other installed mods at runtime.
 - Supports per-card alternate recipes, Power Shards, and Somersloops.
-- Offers detailed and compact card views.
+- Presents the chain as horizontal final-product, intermediate-material, and raw-resource card columns.
+- Offers detailed and compact card views with per-branch expand/collapse controls and building-specific accent colors.
 - Summarizes machine count, raw resources, power consumption, and generation.
 - Adds the calculated manufacturing chain to construction goals with one button.
 
