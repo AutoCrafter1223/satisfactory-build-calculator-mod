@@ -66,6 +66,7 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		CalculatorWidget = CreateWidget<USBCCalculatorWidget>(PlayerController, USBCCalculatorWidget::StaticClass());
 		if (CalculatorWidget)
 		{
+			CalculatorWidget->SetOnRequestClose(FSimpleDelegate::CreateUObject(this, &ASBCPlayerGoalHUD::CloseCalculatorWidget));
 			// The viewport slot does not exist until AddToViewport. Use an absolute
 			// viewport center below instead of combining a center anchor with (0, 0),
 			// which places half of the widget outside the top-left of the screen.
@@ -175,6 +176,7 @@ void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
 	}
 	if (bOpen)
 	{
+		CalculatorWidget->RefreshGameState();
 		UpdateCalculatorLayout();
 	}
 	CalculatorWidget->SetVisibility(bOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);

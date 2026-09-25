@@ -4,7 +4,13 @@
 #include "Internationalization/Internationalization.h"
 #include "SatisfactoryBuildCalculator.h"
 #include "SBCProductionCalculator.h"
+#include "FGRecipe.h"
+#include "FGRecipeManager.h"
+#include "Resources/FGItemDescriptor.h"
+#include "Buildables/FGBuildable.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -46,10 +52,47 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 					]
 					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 					[
-						SNew(STextBlock)
-						.Text(Text(TEXT("F6 닫기"), TEXT("F6 Close")))
-						.ColorAndOpacity(FLinearColor(0.62f, 0.72f, 0.77f))
-						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 10.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text_Lambda([this]() { return GetRecipeSyncStatus(); })
+							.ColorAndOpacity(FLinearColor(0.38f, 0.86f, 0.72f))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text_Lambda([this]()
+							{
+								return bCompactView
+									? Text(TEXT("상세 보기"), TEXT("Detailed view"))
+									: Text(TEXT("간소화 보기"), TEXT("Compact view"));
+							})
+							.OnClicked_Lambda([this]()
+							{
+								bCompactView = !bCompactView;
+								CalculateSelected();
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text(Text(TEXT("새로고침"), TEXT("Refresh")))
+							.OnClicked_Lambda([this]()
+							{
+								RefreshGameState();
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(Text(TEXT("F6 / ESC 닫기"), TEXT("F6 / ESC Close")))
+							.ColorAndOpacity(FLinearColor(0.62f, 0.72f, 0.77f))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
+						]
 					]
 				]
 				+ SVerticalBox::Slot().FillHeight(1.0f)
@@ -134,13 +177,23 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 			]
 		];
 
-	RefreshProductList();
+	RefreshGameState();
 	if (SelectedItemId.IsEmpty())
 	{
 		SelectedItemId = TEXT("Desc_ComputerSuper_C");
 	}
 	CalculateSelected();
 	return Result;
+}
+
+FReply USBCCalculatorWidget::NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (InKeyEvent.GetKey() == EKeys::Escape)
+	{
+		OnRequestClose.ExecuteIfBound();
+		return FReply::Handled();
+	}
+	return Super::NativeOnPreviewKeyDown(InGeometry, InKeyEvent);
 }
 
 void USBCCalculatorWidget::FocusSearchBox()
@@ -163,6 +216,95 @@ void USBCCalculatorWidget::SetPanelSize(const FVector2D& NewSize)
 		RootSizeBox->SetWidthOverride(PanelSize.X);
 		RootSizeBox->SetHeightOverride(PanelSize.Y);
 	}
+}
+
+void USBCCalculatorWidget::RefreshGameState()
+{
+	UnlockedRecipeIds.Reset();
+	UnlockedItemIds.Reset();
+	UnlockedBuildingIds.Reset();
+	bRecipeStateReady = false;
+	if (AFGRecipeManager* RecipeManager = AFGRecipeManager::Get(this))
+	{
+		for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllAvailableRecipes())
+		{
+			if (RecipeClass)
+			{
+				UnlockedRecipeIds.Add(RecipeClass->GetName());
+			}
+		}
+		for (const TSubclassOf<UFGItemDescriptor>& ItemClass : RecipeManager->GetAllAvailableItemDescriptors())
+		{
+			if (ItemClass)
+			{
+				UnlockedItemIds.Add(ItemClass->GetName());
+			}
+		}
+		for (const TSubclassOf<AFGBuildable>& BuildingClass : RecipeManager->GetAvailableBuildingsOfType<AFGBuildable>())
+		{
+			if (BuildingClass)
+			{
+				UnlockedBuildingIds.Add(BuildingClass->GetName());
+			}
+		}
+		bRecipeStateReady = true;
+	}
+	RefreshProductList();
+	CalculateSelected();
+}
+
+bool USBCCalculatorWidget::IsRecipeUnlocked(const FSBCRecipeDefinition& Recipe) const
+{
+	if (!bRecipeStateReady)
+	{
+		return true;
+	}
+	if (Recipe.Kind == TEXT("manufacturing"))
+	{
+		return UnlockedRecipeIds.Contains(Recipe.Id);
+	}
+	if (!UnlockedBuildingIds.Contains(Recipe.BuildingId))
+	{
+		return false;
+	}
+	for (const FSBCIngredientDefinition& Ingredient : Recipe.Ingredients)
+	{
+		if (!UnlockedItemIds.Contains(Ingredient.ItemId))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool USBCCalculatorWidget::IsProductUnlocked(const FString& ItemId) const
+{
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	const TArray<FString>* Recipes = Data ? Data->FindRecipesForItem(ItemId) : nullptr;
+	if (!Recipes || !bRecipeStateReady)
+	{
+		return !bRecipeStateReady;
+	}
+	for (const FString& RecipeId : *Recipes)
+	{
+		if (const FSBCRecipeDefinition* Recipe = Data->FindRecipe(RecipeId); Recipe && IsRecipeUnlocked(*Recipe))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+FText USBCCalculatorWidget::GetRecipeSyncStatus() const
+{
+	if (!bRecipeStateReady)
+	{
+		return Text(TEXT("제조법 동기화 대기"), TEXT("Recipe sync pending"));
+	}
+	return FText::FromString(bKorean
+		? FString::Printf(TEXT("해금 제조법 %d개 동기화"), UnlockedRecipeIds.Num())
+		: FString::Printf(TEXT("%d unlocked recipes synced"), UnlockedRecipeIds.Num()));
 }
 
 void USBCCalculatorWidget::RefreshProductList()
@@ -192,10 +334,15 @@ void USBCCalculatorWidget::RefreshProductList()
 	for (const FSBCItemDefinition* Item : Matches)
 	{
 		const FString ItemId = Item->Id;
-		const FText Name = FText::FromString(bKorean ? Item->NameKo : Item->NameEn);
+		const bool bUnlocked = IsProductUnlocked(ItemId);
+		const FString DisplayName = bKorean ? Item->NameKo : Item->NameEn;
+		const FText Name = FText::FromString(bUnlocked
+			? DisplayName
+			: FString::Printf(TEXT("%s  🔒"), *DisplayName));
 		ProductListBox->AddSlot().AutoHeight().Padding(0.0f, 1.0f)
 		[
 			SNew(SButton)
+			.IsEnabled(bUnlocked)
 			.ContentPadding(FMargin(8.0f, 5.0f))
 			.OnClicked_Lambda([this, ItemId]()
 			{
@@ -213,6 +360,7 @@ void USBCCalculatorWidget::RefreshProductList()
 
 void USBCCalculatorWidget::SelectProduct(const FString& ItemId)
 {
+	if (!IsProductUnlocked(ItemId)) return;
 	SelectedItemId = ItemId;
 	RefreshProductList();
 	CalculateSelected();
@@ -232,6 +380,16 @@ void USBCCalculatorWidget::CalculateSelected()
 	if (SelectedItemId.IsEmpty())
 	{
 		ResultBox->AddSlot().AutoHeight()[SNew(STextBlock).Text(Text(TEXT("왼쪽에서 제품을 선택하세요."), TEXT("Select a product on the left.")))];
+		return;
+	}
+	if (!IsProductUnlocked(SelectedItemId))
+	{
+		ResultBox->AddSlot().AutoHeight()
+		[
+			SNew(STextBlock)
+			.Text(Text(TEXT("아직 해금되지 않은 제품입니다."), TEXT("This product has not been unlocked yet.")))
+			.ColorAndOpacity(FLinearColor(1.0f, 0.62f, 0.14f))
+		];
 		return;
 	}
 
@@ -270,10 +428,12 @@ void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& N
 				*Node->BuildingName, Node->ExactBuildingCount, Node->InstalledBuildingCount, Node->PowerMW);
 	}
 
-	ResultBox->AddSlot().AutoHeight().Padding(Depth * 18.0f, 2.0f, 0.0f, 2.0f)
+	const float Indent = bCompactView ? Depth * 10.0f : Depth * 18.0f;
+	const FMargin CardPadding = bCompactView ? FMargin(7.0f, 3.0f) : FMargin(9.0f, 6.0f);
+	ResultBox->AddSlot().AutoHeight().Padding(Indent, 2.0f, 0.0f, 2.0f)
 	[
 		SNew(SBorder)
-		.Padding(FMargin(9.0f, 6.0f))
+		.Padding(CardPadding)
 		.BorderBackgroundColor(Depth == 0 ? FLinearColor(0.12f, 0.18f, 0.20f, 0.78f) : FLinearColor(0.055f, 0.09f, 0.11f, 0.62f))
 		[
 			SNew(SVerticalBox)
@@ -285,11 +445,13 @@ void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& N
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", Depth == 0 ? 14 : 12))
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
+			.VAlign(VAlign_Center)
 			[
 				SNew(STextBlock)
 				.Text(FText::FromString(Detail))
 				.ColorAndOpacity(FLinearColor(0.58f, 0.72f, 0.78f))
 				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+				.Visibility(bCompactView ? EVisibility::Collapsed : EVisibility::Visible)
 			]
 		]
 	];
