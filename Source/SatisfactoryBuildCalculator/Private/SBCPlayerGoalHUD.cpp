@@ -6,6 +6,8 @@
 #include "Engine/World.h"
 #include "FGCharacterPlayer.h"
 #include "FGPlayerController.h"
+#include "FGRecipe.h"
+#include "FGRecipeManager.h"
 #include "InputCoreTypes.h"
 #include "SBCCalculatorWidget.h"
 #include "SBCGoalHUDWidget.h"
@@ -67,6 +69,7 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		if (CalculatorWidget)
 		{
 			CalculatorWidget->SetOnRequestClose(FSimpleDelegate::CreateUObject(this, &ASBCPlayerGoalHUD::CloseCalculatorWidget));
+			CalculatorWidget->SetOnRequestAddGoals(FSimpleDelegate::CreateUObject(this, &ASBCPlayerGoalHUD::AddCalculatorPlanToGoals));
 			// The viewport slot does not exist until AddToViewport. Use an absolute
 			// viewport center below instead of combining a center anchor with (0, 0),
 			// which places half of the widget outside the top-left of the screen.
@@ -78,6 +81,39 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		}
 	}
 	return IsValid(GoalWidget);
+}
+
+void ASBCPlayerGoalHUD::AddCalculatorPlanToGoals()
+{
+	if (!CalculatorWidget) return;
+	USBCRemoteCallObject* RCO = GetRemoteCallObject();
+	AFGRecipeManager* RecipeManager = AFGRecipeManager::Get(this);
+	if (!RCO || !RecipeManager) return;
+
+	TMap<FString, TSubclassOf<UFGRecipe>> RecipesById;
+	for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllRecipes())
+	{
+		if (RecipeClass) RecipesById.Add(RecipeClass->GetName(), RecipeClass);
+	}
+	TMap<FString, TSubclassOf<AFGBuildable>> BuildingsById;
+	for (const TSubclassOf<AFGBuildable>& BuildableClass : RecipeManager->GetAvailableBuildingsOfType<AFGBuildable>())
+	{
+		if (BuildableClass) BuildingsById.Add(BuildableClass->GetName(), BuildableClass);
+	}
+	for (const FSBCCalculatedGoalRequest& Request : CalculatorWidget->GetGoalPlan())
+	{
+		if (Request.bRequiresRecipe)
+		{
+			if (const TSubclassOf<UFGRecipe>* RecipeClass = RecipesById.Find(Request.RecipeId))
+			{
+				RCO->ServerAddGoalFromRecipe(*RecipeClass, Request.TargetCount, Request.PowerShards, Request.Somersloops);
+			}
+		}
+		else if (const TSubclassOf<AFGBuildable>* BuildableClass = BuildingsById.Find(Request.BuildingId))
+		{
+			RCO->ServerAddGoalFromClass(*BuildableClass, Request.TargetCount);
+		}
+	}
 }
 
 void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)

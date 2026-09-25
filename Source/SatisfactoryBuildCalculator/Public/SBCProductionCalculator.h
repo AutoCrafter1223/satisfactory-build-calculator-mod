@@ -86,17 +86,22 @@ class SATISFACTORYBUILDCALCULATOR_API FSBCProductionData
 {
 public:
 	bool Load(FString& OutError);
+	bool SynchronizeRuntimeRecipes(UObject* WorldContext, FString& OutError);
 	bool IsLoaded() const { return bLoaded; }
 	const FSBCItemDefinition* FindItem(const FString& ItemId) const;
 	const FSBCBuildingDefinition* FindBuilding(const FString& BuildingId) const;
 	const FSBCRecipeDefinition* FindRecipe(const FString& RecipeId) const;
 	const TArray<FString>* FindRecipesForItem(const FString& ItemId) const;
 	const TMap<FString, FSBCItemDefinition>& GetItems() const { return Items; }
+	const TMap<FString, FSBCRecipeDefinition>& GetRecipes() const { return Recipes; }
 	int32 GetBuildingCount() const { return Buildings.Num(); }
 	int32 GetRecipeCount() const { return Recipes.Num(); }
+	int32 GetRuntimeRecipeCount() const { return RuntimeRecipeCount; }
 
 private:
 	bool bLoaded = false;
+	int32 RuntimeRecipeCount = 0;
+	TSet<FString> RuntimeRecipeIds;
 	TMap<FString, FSBCItemDefinition> Items;
 	TMap<FString, FSBCBuildingDefinition> Buildings;
 	TMap<FString, FSBCRecipeDefinition> Recipes;

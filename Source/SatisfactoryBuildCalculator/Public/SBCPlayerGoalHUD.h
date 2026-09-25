@@ -49,6 +49,7 @@ private:
 	void ToggleWidget();
 	void ToggleCalculatorWidget();
 	void CloseCalculatorWidget();
+	void AddCalculatorPlanToGoals();
 	void UpdateCalculatorLayout();
 	void AddLookedAtGoal();
 	void ChangeSelection(int32 Delta);

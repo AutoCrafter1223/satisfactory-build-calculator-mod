@@ -13,6 +13,7 @@
 #include "InputCoreTypes.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Layout/SBorder.h"
@@ -20,6 +21,56 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
+
+namespace
+{
+	void GatherProductionSummary(
+		const TSharedPtr<FSBCProductionNode>& Node,
+		TMap<FString, TPair<double, FString>>& RawResources,
+		int32& Machines,
+		double& ConsumptionMW,
+		double& GenerationMW)
+	{
+		if (!Node) return;
+		if (Node->bRawResource)
+		{
+			TPair<double, FString>& Entry = RawResources.FindOrAdd(Node->ItemName);
+			Entry.Key += Node->RequiredRate;
+			Entry.Value = Node->Unit;
+		}
+		else
+		{
+			Machines += Node->InstalledBuildingCount;
+			ConsumptionMW += Node->PowerMW;
+			GenerationMW += Node->GenerationMW;
+		}
+		for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
+		{
+			GatherProductionSummary(Child, RawResources, Machines, ConsumptionMW, GenerationMW);
+		}
+	}
+
+	void GatherGoalPlan(const TSharedPtr<FSBCProductionNode>& Node, TMap<FString, FSBCCalculatedGoalRequest>& Requests)
+	{
+		if (!Node) return;
+		if (!Node->bRawResource && !Node->BuildingId.IsEmpty() && Node->InstalledBuildingCount > 0)
+		{
+			const FString Identity = Node->bGenerator ? Node->BuildingId : Node->RecipeId;
+			const FString Key = FString::Printf(TEXT("%s|%d|%d"), *Identity, Node->PowerShards, Node->Somersloops);
+			FSBCCalculatedGoalRequest& Request = Requests.FindOrAdd(Key);
+			Request.RecipeId = Node->RecipeId;
+			Request.BuildingId = Node->BuildingId;
+			Request.TargetCount += Node->InstalledBuildingCount;
+			Request.PowerShards = Node->PowerShards;
+			Request.Somersloops = Node->Somersloops;
+			Request.bRequiresRecipe = !Node->bGenerator;
+		}
+		for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
+		{
+			GatherGoalPlan(Child, Requests);
+		}
+	}
+}
 
 FText USBCCalculatorWidget::Text(const TCHAR* Korean, const TCHAR* English) const
 {
@@ -152,6 +203,28 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 										TargetRate = NewValue;
 									})
 								]
+								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10.0f, 0.0f, 5.0f, 0.0f)
+								[
+									SNew(STextBlock)
+									.Text(Text(TEXT("전체 동력핵"), TEXT("Global shards")))
+									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+								]
+								+ SHorizontalBox::Slot().AutoWidth().Padding(1.0f)
+								[
+									SNew(SButton).Text(FText::FromString(TEXT("0"))).OnClicked_Lambda([this]() { SetDefaultPowerShards(0); return FReply::Handled(); })
+								]
+								+ SHorizontalBox::Slot().AutoWidth().Padding(1.0f)
+								[
+									SNew(SButton).Text(FText::FromString(TEXT("1"))).OnClicked_Lambda([this]() { SetDefaultPowerShards(1); return FReply::Handled(); })
+								]
+								+ SHorizontalBox::Slot().AutoWidth().Padding(1.0f)
+								[
+									SNew(SButton).Text(FText::FromString(TEXT("2"))).OnClicked_Lambda([this]() { SetDefaultPowerShards(2); return FReply::Handled(); })
+								]
+								+ SHorizontalBox::Slot().AutoWidth().Padding(1.0f, 1.0f, 8.0f, 1.0f)
+								[
+									SNew(SButton).Text(FText::FromString(TEXT("3"))).OnClicked_Lambda([this]() { SetDefaultPowerShards(3); return FReply::Handled(); })
+								]
 								+ SHorizontalBox::Slot().AutoWidth().Padding(10.0f, 0.0f, 0.0f, 0.0f)
 								[
 									SNew(SButton)
@@ -161,6 +234,25 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 										CalculateSelected();
 										return FReply::Handled();
 									})
+								]
+								+ SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
+								[
+									SNew(SButton)
+									.Text(Text(TEXT("목표 추가"), TEXT("Add goals")))
+									.OnClicked_Lambda([this]()
+									{
+										OnRequestAddGoals.ExecuteIfBound();
+										return FReply::Handled();
+									})
+								]
+							]
+							+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
+							[
+								SNew(SBorder)
+								.Padding(FMargin(10.0f, 7.0f))
+								.BorderBackgroundColor(FLinearColor(0.08f, 0.12f, 0.13f, 0.82f))
+								[
+									SAssignNew(SummaryBox, SVerticalBox)
 								]
 							]
 							+ SVerticalBox::Slot().FillHeight(1.0f)
@@ -226,6 +318,14 @@ void USBCCalculatorWidget::RefreshGameState()
 	bRecipeStateReady = false;
 	if (AFGRecipeManager* RecipeManager = AFGRecipeManager::Get(this))
 	{
+		if (FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator")))
+		{
+			if (const TSharedPtr<FSBCProductionData> Data = Module->GetProductionData())
+			{
+				FString SyncError;
+				Data->SynchronizeRuntimeRecipes(this, SyncError);
+			}
+		}
 		for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllAvailableRecipes())
 		{
 			if (RecipeClass)
@@ -302,9 +402,12 @@ FText USBCCalculatorWidget::GetRecipeSyncStatus() const
 	{
 		return Text(TEXT("제조법 동기화 대기"), TEXT("Recipe sync pending"));
 	}
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	const int32 RuntimeCount = Data ? Data->GetRuntimeRecipeCount() : 0;
 	return FText::FromString(bKorean
-		? FString::Printf(TEXT("해금 제조법 %d개 동기화"), UnlockedRecipeIds.Num())
-		: FString::Printf(TEXT("%d unlocked recipes synced"), UnlockedRecipeIds.Num()));
+		? FString::Printf(TEXT("해금 %d개 · 추가 제조법 %d개"), UnlockedRecipeIds.Num(), RuntimeCount)
+		: FString::Printf(TEXT("%d unlocked · %d additional recipes"), UnlockedRecipeIds.Num(), RuntimeCount));
 }
 
 void USBCCalculatorWidget::RefreshProductList()
@@ -338,7 +441,7 @@ void USBCCalculatorWidget::RefreshProductList()
 		const FString DisplayName = bKorean ? Item->NameKo : Item->NameEn;
 		const FText Name = FText::FromString(bUnlocked
 			? DisplayName
-			: FString::Printf(TEXT("%s  🔒"), *DisplayName));
+			: FString::Printf(TEXT("%s  [%s]"), *DisplayName, bKorean ? TEXT("잠김") : TEXT("Locked")));
 		ProductListBox->AddSlot().AutoHeight().Padding(0.0f, 1.0f)
 		[
 			SNew(SButton)
@@ -362,6 +465,8 @@ void USBCCalculatorWidget::SelectProduct(const FString& ItemId)
 {
 	if (!IsProductUnlocked(ItemId)) return;
 	SelectedItemId = ItemId;
+	SelectedRecipes.Reset();
+	MachineSettings.Reset();
 	RefreshProductList();
 	CalculateSelected();
 }
@@ -369,7 +474,9 @@ void USBCCalculatorWidget::SelectProduct(const FString& ItemId)
 void USBCCalculatorWidget::CalculateSelected()
 {
 	if (!ResultBox.IsValid()) return;
+	LastCalculatedRoot.Reset();
 	ResultBox->ClearChildren();
+	if (SummaryBox.IsValid()) SummaryBox->ClearChildren();
 	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
 	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
 	if (!Data || !Data->IsLoaded())
@@ -395,13 +502,123 @@ void USBCCalculatorWidget::CalculateSelected()
 
 	FSBCProductionCalculator Calculator(*Data);
 	FString Error;
-	const TSharedPtr<FSBCProductionNode> Root = Calculator.Calculate(SelectedItemId, TargetRate, {}, {}, 0, bKorean, 0.0, Error);
+	const TSharedPtr<FSBCProductionNode> Root = Calculator.Calculate(SelectedItemId, TargetRate, SelectedRecipes, MachineSettings, DefaultPowerShards, bKorean, 0.0, Error);
 	if (!Root)
 	{
 		ResultBox->AddSlot().AutoHeight()[SNew(STextBlock).Text(FText::FromString(Error)).ColorAndOpacity(FLinearColor(1.0f, 0.35f, 0.25f))];
 		return;
 	}
+	LastCalculatedRoot = Root;
 	AddResultNode(Root, 0);
+	RefreshSummary(Root);
+}
+
+TArray<FSBCCalculatedGoalRequest> USBCCalculatorWidget::GetGoalPlan() const
+{
+	TMap<FString, FSBCCalculatedGoalRequest> Requests;
+	GatherGoalPlan(LastCalculatedRoot, Requests);
+	TArray<FSBCCalculatedGoalRequest> Result;
+	Requests.GenerateValueArray(Result);
+	return Result;
+}
+
+void USBCCalculatorWidget::RefreshSummary(const TSharedPtr<FSBCProductionNode>& Root)
+{
+	if (!SummaryBox.IsValid()) return;
+	SummaryBox->ClearChildren();
+	TMap<FString, TPair<double, FString>> RawResources;
+	int32 Machines = 0;
+	double ConsumptionMW = 0.0;
+	double GenerationMW = 0.0;
+	GatherProductionSummary(Root, RawResources, Machines, ConsumptionMW, GenerationMW);
+
+	SummaryBox->AddSlot().AutoHeight()
+	[
+		SNew(STextBlock)
+		.Text(FText::FromString(bKorean
+			? FString::Printf(TEXT("생산 요약   설치 %d대   소비 %.1f MW   발전 %.1f MW"), Machines, ConsumptionMW, GenerationMW)
+			: FString::Printf(TEXT("Production summary   %d machines   %.1f MW used   %.1f MW generated"), Machines, ConsumptionMW, GenerationMW)))
+		.ColorAndOpacity(FLinearColor(1.0f, 0.66f, 0.18f))
+		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+	];
+
+	if (!RawResources.IsEmpty())
+	{
+		TArray<FString> Parts;
+		for (const TPair<FString, TPair<double, FString>>& Pair : RawResources)
+		{
+			const FString Unit = Pair.Value.Value == TEXT("m3") ? TEXT("m³/min") : (bKorean ? TEXT("개/min") : TEXT("/min"));
+			Parts.Add(FString::Printf(TEXT("%s %.2f %s"), *Pair.Key, Pair.Value.Key, *Unit));
+		}
+		Parts.Sort();
+		SummaryBox->AddSlot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, 0.0f)
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString((bKorean ? TEXT("원자재: ") : TEXT("Raw: ")) + FString::Join(Parts, TEXT("  ·  "))))
+			.ColorAndOpacity(FLinearColor(0.68f, 0.78f, 0.80f))
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+			.AutoWrapText(true)
+		];
+	}
+}
+
+TSharedRef<SWidget> USBCCalculatorWidget::BuildRecipeMenu(FString NodeId, FString ItemId)
+{
+	TSharedRef<SVerticalBox> Menu = SNew(SVerticalBox);
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	const TArray<FString>* CandidateIds = Data ? Data->FindRecipesForItem(ItemId) : nullptr;
+	if (!CandidateIds)
+	{
+		return Menu;
+	}
+	for (const FString& RecipeId : *CandidateIds)
+	{
+		const FSBCRecipeDefinition* Recipe = Data->FindRecipe(RecipeId);
+		if (!Recipe) continue;
+		const bool bUnlocked = IsRecipeUnlocked(*Recipe);
+		const FString Label = bKorean ? Recipe->NameKo : Recipe->NameEn;
+		Menu->AddSlot().AutoHeight().Padding(2.0f)
+		[
+			SNew(SButton)
+			.IsEnabled(bUnlocked)
+			.ContentPadding(FMargin(8.0f, 4.0f))
+			.Text(FText::FromString(bUnlocked
+				? Label
+				: FString::Printf(TEXT("%s  [%s]"), *Label, bKorean ? TEXT("잠김") : TEXT("Locked"))))
+			.OnClicked_Lambda([this, NodeId, RecipeId]()
+			{
+				SelectRecipeForNode(NodeId, RecipeId);
+				return FReply::Handled();
+			})
+		];
+	}
+	return SNew(SBorder).Padding(4.0f).BorderBackgroundColor(FLinearColor(0.025f, 0.055f, 0.07f, 0.96f))[Menu];
+}
+
+void USBCCalculatorWidget::SelectRecipeForNode(const FString& NodeId, const FString& RecipeId)
+{
+	SelectedRecipes.Add(NodeId, RecipeId);
+	CalculateSelected();
+}
+
+void USBCCalculatorWidget::SetNodePowerShards(const FString& NodeId, int32 Count)
+{
+	MachineSettings.FindOrAdd(NodeId).PowerShards = FMath::Clamp(Count, 0, 3);
+	CalculateSelected();
+}
+
+void USBCCalculatorWidget::SetNodeSomersloops(const FString& NodeId, int32 Count)
+{
+	MachineSettings.FindOrAdd(NodeId).Somersloops = FMath::Max(0, Count);
+	CalculateSelected();
+}
+
+void USBCCalculatorWidget::SetDefaultPowerShards(int32 Count)
+{
+	DefaultPowerShards = FMath::Clamp(Count, 0, 3);
+	MachineSettings.Reset();
+	CalculateSelected();
 }
 
 void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& Node, int32 Depth)
@@ -430,6 +647,13 @@ void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& N
 
 	const float Indent = bCompactView ? Depth * 10.0f : Depth * 18.0f;
 	const FMargin CardPadding = bCompactView ? FMargin(7.0f, 3.0f) : FMargin(9.0f, 6.0f);
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	const TArray<FString>* CandidateRecipes = Data ? Data->FindRecipesForItem(Node->ItemId) : nullptr;
+	const FSBCBuildingDefinition* Building = Data ? Data->FindBuilding(Node->BuildingId) : nullptr;
+	const int32 MaxSomersloops = Building ? Building->SloopSlots : 0;
+	const FString NodeId = Node->NodeId;
+	const FString ItemId = Node->ItemId;
 	ResultBox->AddSlot().AutoHeight().Padding(Indent, 2.0f, 0.0f, 2.0f)
 	[
 		SNew(SBorder)
@@ -452,6 +676,47 @@ void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& N
 				.ColorAndOpacity(FLinearColor(0.58f, 0.72f, 0.78f))
 				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
 				.Visibility(bCompactView ? EVisibility::Collapsed : EVisibility::Visible)
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 5.0f, 0.0f, 0.0f)
+			[
+				SNew(SHorizontalBox)
+				.Visibility(!bCompactView && !Node->bRawResource ? EVisibility::Visible : EVisibility::Collapsed)
+				+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 8.0f, 0.0f)
+				[
+					SNew(SComboButton)
+					.IsEnabled(CandidateRecipes && CandidateRecipes->Num() > 1)
+					.OnGetMenuContent_Lambda([this, NodeId, ItemId]() { return BuildRecipeMenu(NodeId, ItemId); })
+					.ButtonContent()
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(Node->RecipeName))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
+				[
+					SNew(STextBlock).Text(Text(TEXT("동력핵"), TEXT("Shards"))).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
+				[
+					SNew(SSpinBox<int32>)
+					.MinValue(0).MaxValue(3).MinSliderValue(0).MaxSliderValue(3)
+					.Value(Node->PowerShards)
+					.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodePowerShards(NodeId, Value); })
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
+				[
+					SNew(STextBlock).Text(Text(TEXT("소매슬루프"), TEXT("Somersloops"))).Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					.Visibility(MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					SNew(SSpinBox<int32>)
+					.MinValue(0).MaxValue(MaxSomersloops).MinSliderValue(0).MaxSliderValue(MaxSomersloops)
+					.Value(Node->Somersloops)
+					.Visibility(MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
+					.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodeSomersloops(NodeId, Value); })
+				]
 			]
 		]
 	];

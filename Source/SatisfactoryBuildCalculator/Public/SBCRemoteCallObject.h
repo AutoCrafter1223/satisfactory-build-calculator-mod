@@ -5,6 +5,7 @@
 #include "SBCRemoteCallObject.generated.h"
 
 class AFGBuildable;
+class UFGRecipe;
 
 UCLASS(NotBlueprintable)
 class SATISFACTORYBUILDCALCULATOR_API USBCRemoteCallObject final : public UFGRemoteCallObject
@@ -16,6 +17,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerAddGoalFromBuildable(AFGBuildable* TemplateBuildable, int32 TargetCount);
+
+	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerAddGoalFromRecipe(TSubclassOf<UFGRecipe> RecipeClass, int32 TargetCount, int32 PowerShards, int32 Somersloops);
+
+	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerAddGoalFromClass(TSubclassOf<AFGBuildable> BuildableClass, int32 TargetCount);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerRemoveGoal(FGuid GoalId);

@@ -1,8 +1,14 @@
 #include "SBCProductionCalculator.h"
 
+#include "Buildables/FGBuildable.h"
+#include "Buildables/FGBuildableFactory.h"
+#include "FGRecipe.h"
+#include "FGRecipeManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Resources/FGBuildingDescriptor.h"
+#include "Resources/FGItemDescriptor.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -67,6 +73,28 @@ namespace
 	{
 		return bKorean ? Korean : (English.IsEmpty() ? Korean : English);
 	}
+
+	double NormalizeItemAmount(const FItemAmount& ItemAmount)
+	{
+		if (!ItemAmount.ItemClass)
+		{
+			return 0.0;
+		}
+		const EResourceForm Form = UFGItemDescriptor::GetForm(ItemAmount.ItemClass);
+		return Form == EResourceForm::RF_LIQUID || Form == EResourceForm::RF_GAS
+			? static_cast<double>(ItemAmount.Amount) / 1000.0
+			: static_cast<double>(ItemAmount.Amount);
+	}
+
+	FString UnitForItem(TSubclassOf<UFGItemDescriptor> ItemClass)
+	{
+		if (!ItemClass)
+		{
+			return TEXT("items");
+		}
+		const EResourceForm Form = UFGItemDescriptor::GetForm(ItemClass);
+		return Form == EResourceForm::RF_LIQUID || Form == EResourceForm::RF_GAS ? TEXT("m3") : TEXT("items");
+	}
 }
 
 bool FSBCProductionData::Load(FString& OutError)
@@ -76,6 +104,8 @@ bool FSBCProductionData::Load(FString& OutError)
 	Buildings.Reset();
 	Recipes.Reset();
 	RecipesByOutput.Reset();
+	RuntimeRecipeIds.Reset();
+	RuntimeRecipeCount = 0;
 
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("SatisfactoryBuildCalculator"));
 	if (!Plugin)
@@ -161,6 +191,126 @@ bool FSBCProductionData::Load(FString& OutError)
 	bLoaded = Items.Num() > 0 && Buildings.Num() > 0 && Recipes.Num() > 0;
 	if (!bLoaded) OutError = TEXT("Calculator data is empty.");
 	return bLoaded;
+}
+
+bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FString& OutError)
+{
+	OutError.Reset();
+	AFGRecipeManager* RecipeManager = AFGRecipeManager::Get(WorldContext);
+	if (!RecipeManager)
+	{
+		OutError = TEXT("Recipe manager is not available yet.");
+		return false;
+	}
+
+	for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllRecipes())
+	{
+		if (!RecipeClass)
+		{
+			continue;
+		}
+		const FString RecipeId = RecipeClass->GetName();
+		if (Recipes.Contains(RecipeId))
+		{
+			continue;
+		}
+
+		const TArray<FItemAmount> Products = UFGRecipe::GetProducts(RecipeClass);
+		const TArray<FItemAmount> Ingredients = UFGRecipe::GetIngredients(WorldContext, RecipeClass);
+		const float Duration = UFGRecipe::GetManufacturingDuration(RecipeClass);
+		if (Products.IsEmpty() || !Products[0].ItemClass || Duration <= 0.0f)
+		{
+			continue;
+		}
+
+		auto EnsureItem = [this](TSubclassOf<UFGItemDescriptor> ItemClass)
+		{
+			if (!ItemClass) return;
+			const FString ItemId = ItemClass->GetName();
+			if (Items.Contains(ItemId)) return;
+			FSBCItemDefinition Item;
+			Item.Id = ItemId;
+			Item.NameKo = UFGItemDescriptor::GetItemName(ItemClass).ToString();
+			Item.NameEn = Item.NameKo;
+			Item.Unit = UnitForItem(ItemClass);
+			Items.Add(Item.Id, MoveTemp(Item));
+		};
+
+		for (const FItemAmount& Product : Products) EnsureItem(Product.ItemClass);
+		for (const FItemAmount& Ingredient : Ingredients) EnsureItem(Ingredient.ItemClass);
+
+		TArray<TSubclassOf<UObject>> Producers = UFGRecipe::GetProducedIn(RecipeClass);
+		TSubclassOf<AFGBuildableFactory> FactoryClass;
+		for (const TSubclassOf<UObject>& Producer : Producers)
+		{
+			if (Producer && Producer->IsChildOf(AFGBuildableFactory::StaticClass()))
+			{
+				FactoryClass = TSubclassOf<AFGBuildableFactory>(Producer.Get());
+				break;
+			}
+		}
+		if (!FactoryClass)
+		{
+			continue;
+		}
+
+		const FString BuildingId = FactoryClass->GetName();
+		if (!Buildings.Contains(BuildingId))
+		{
+			FSBCBuildingDefinition Building;
+			Building.Id = BuildingId;
+			Building.NameKo = BuildingId;
+			if (TSubclassOf<UFGBuildingDescriptor> Descriptor = RecipeManager->FindBuildingDescriptorByClass(FactoryClass))
+			{
+				Building.NameKo = UFGItemDescriptor::GetItemName(Descriptor).ToString();
+			}
+			Building.NameEn = Building.NameKo;
+			if (const AFGBuildableFactory* FactoryCDO = FactoryClass->GetDefaultObject<AFGBuildableFactory>())
+			{
+				Building.BasePowerMW = FactoryCDO->GetDefaultProducingPowerConsumption();
+			}
+			Buildings.Add(Building.Id, MoveTemp(Building));
+		}
+
+		FSBCRecipeDefinition Recipe;
+		Recipe.Id = RecipeId;
+		Recipe.NameKo = UFGRecipe::GetRecipeName(RecipeClass).ToString();
+		Recipe.NameEn = Recipe.NameKo;
+		Recipe.OutputItemId = Products[0].ItemClass->GetName();
+		Recipe.OutputAmount = NormalizeItemAmount(Products[0]);
+		Recipe.DurationSeconds = Duration;
+		Recipe.BuildingId = BuildingId;
+		Recipe.bAlternate = Recipe.Id.Contains(TEXT("Alternate"), ESearchCase::IgnoreCase);
+		Recipe.bDefault = !Recipe.bAlternate && !RecipesByOutput.Contains(Recipe.OutputItemId);
+		for (const FItemAmount& Ingredient : Ingredients)
+		{
+			if (Ingredient.ItemClass)
+			{
+				Recipe.Ingredients.Add({Ingredient.ItemClass->GetName(), NormalizeItemAmount(Ingredient)});
+			}
+		}
+		for (int32 ProductIndex = 1; ProductIndex < Products.Num(); ++ProductIndex)
+		{
+			if (Products[ProductIndex].ItemClass)
+			{
+				Recipe.Byproducts.Add({Products[ProductIndex].ItemClass->GetName(), NormalizeItemAmount(Products[ProductIndex])});
+			}
+		}
+		RecipesByOutput.FindOrAdd(Recipe.OutputItemId).Add(Recipe.Id);
+		RuntimeRecipeIds.Add(Recipe.Id);
+		Recipes.Add(Recipe.Id, MoveTemp(Recipe));
+	}
+
+	for (TPair<FString, FSBCItemDefinition>& Pair : Items)
+	{
+		if (!RecipesByOutput.Contains(Pair.Key))
+		{
+			Pair.Value.bRawResource = true;
+		}
+	}
+	bLoaded = Items.Num() > 0 && Buildings.Num() > 0 && Recipes.Num() > 0;
+	RuntimeRecipeCount = RuntimeRecipeIds.Num();
+	return true;
 }
 
 const FSBCItemDefinition* FSBCProductionData::FindItem(const FString& ItemId) const { return Items.Find(ItemId); }
