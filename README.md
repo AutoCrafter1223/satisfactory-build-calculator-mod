@@ -1,6 +1,12 @@
-# Satisfactory Build Calculator Mod
+# Satisfactory Build Calculator
 
 In-game production calculator and construction goal tracker for Satisfactory.
+
+## Installation
+
+The public release is intended to be installed through Satisfactory Mod Manager. SMM installs the compatible Satisfactory Mod Loader dependency and places the mod files correctly. Manual installation is intended only for development and troubleshooting.
+
+The mod does not collect telemetry, contact external services, or modify files outside Satisfactory's normal mod and save-data paths.
 
 ## Current controls
 
@@ -44,4 +50,12 @@ Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboar
 
 ## Development status
 
-The native runtime, save/replication layer, multiplayer remote calls, automatic tracker, compact HUD, configurable hotkeys, and production calculator compile for `FactoryGameSteam` Shipping.
+Version `1.0.0` is the first public release candidate. The native runtime, save/replication layer, multiplayer remote calls, automatic tracker, compact HUD, configurable hotkeys, and production calculator compile for `FactoryGameSteam` Shipping.
+
+Built against Satisfactory build `502094` and Satisfactory Mod Loader `3.12.0`. The first public package targets the Windows game client, including normal single-player and listen-server play. Dedicated-server packages are intentionally omitted until separate Windows and Linux server testing is complete.
+
+## Support and source
+
+- Source: https://github.com/gyeong-seog/satisfactory-build-calculator
+- Issues: https://github.com/gyeong-seog/satisfactory-build-calculator/issues
+- License: MIT

@@ -1,0 +1,10 @@
+.deploy/
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+*.sln
+*.opensdf
+*.sdf
+*.suo
+*.user
