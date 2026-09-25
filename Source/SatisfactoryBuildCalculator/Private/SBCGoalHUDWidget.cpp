@@ -47,19 +47,32 @@ TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 			]
 		];
 
+	bHasRenderedState = false;
 	RefreshGoals();
 	return Result;
 }
 
 void USBCGoalHUDWidget::SetObservedPlayer(AFGCharacterPlayer* Player)
 {
+	if (ObservedPlayer.Get() == Player)
+	{
+		return;
+	}
+
 	ObservedPlayer = Player;
+	bHasRenderedState = false;
 	RefreshGoals();
 }
 
 void USBCGoalHUDWidget::SetSelectedGoalIndex(int32 Index)
 {
-	SelectedGoalIndex = FMath::Max(0, Index);
+	const int32 NewIndex = FMath::Max(0, Index);
+	if (SelectedGoalIndex == NewIndex)
+	{
+		return;
+	}
+
+	SelectedGoalIndex = NewIndex;
 	RefreshGoals();
 }
 
@@ -70,8 +83,35 @@ void USBCGoalHUDWidget::RefreshGoals()
 		return;
 	}
 
-	ContentBox->ClearChildren();
 	const bool bKorean = IsKorean();
+	AFGCharacterPlayer* Player = ObservedPlayer.Get();
+	ASBCGoalSubsystem* Subsystem = ASBCGoalSubsystem::Get(Player);
+	const TArray<FSBCBuildGoal> Goals = Subsystem ? Subsystem->GetGoalsForPlayer(Player) : TArray<FSBCBuildGoal>();
+
+	// The HUD is polled so replicated goal changes appear promptly, but rebuilding the
+	// entire Slate tree every poll causes visible flashing. Only rebuild when something
+	// the player can see has actually changed.
+	uint32 StateHash = GetTypeHash(bKorean);
+	StateHash = HashCombine(StateHash, GetTypeHash(SelectedGoalIndex));
+	StateHash = HashCombine(StateHash, GetTypeHash(Goals.Num()));
+	for (const FSBCBuildGoal& Goal : Goals)
+	{
+		StateHash = HashCombine(StateHash, GetTypeHash(Goal.GoalId));
+		StateHash = HashCombine(StateHash, GetTypeHash(Goal.BuildableClass));
+		StateHash = HashCombine(StateHash, GetTypeHash(Goal.RecipeClass));
+		StateHash = HashCombine(StateHash, GetTypeHash(Goal.TargetCount));
+		StateHash = HashCombine(StateHash, GetTypeHash(Goal.CompletedCount));
+		StateHash = HashCombine(StateHash, GetTypeHash(Goal.bManuallyCompleted));
+	}
+
+	if (bHasRenderedState && LastRenderedStateHash == StateHash)
+	{
+		return;
+	}
+	LastRenderedStateHash = StateHash;
+	bHasRenderedState = true;
+
+	ContentBox->ClearChildren();
 	ContentBox->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
 	[
 		SNew(STextBlock)
@@ -79,10 +119,6 @@ void USBCGoalHUDWidget::RefreshGoals()
 		.ColorAndOpacity(FLinearColor(1.0f, 0.60f, 0.12f))
 		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 17))
 	];
-
-	AFGCharacterPlayer* Player = ObservedPlayer.Get();
-	ASBCGoalSubsystem* Subsystem = ASBCGoalSubsystem::Get(Player);
-	const TArray<FSBCBuildGoal> Goals = Subsystem ? Subsystem->GetGoalsForPlayer(Player) : TArray<FSBCBuildGoal>();
 
 	if (Goals.IsEmpty())
 	{

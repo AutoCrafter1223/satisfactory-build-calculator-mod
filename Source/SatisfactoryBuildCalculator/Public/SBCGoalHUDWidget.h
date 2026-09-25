@@ -24,4 +24,6 @@ private:
 	TWeakObjectPtr<AFGCharacterPlayer> ObservedPlayer;
 	TSharedPtr<SVerticalBox> ContentBox;
 	int32 SelectedGoalIndex = 0;
+	uint32 LastRenderedStateHash = 0;
+	bool bHasRenderedState = false;
 };
