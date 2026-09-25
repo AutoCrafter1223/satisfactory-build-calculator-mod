@@ -31,6 +31,15 @@ namespace
 		}
 		return IsKorean() ? FText::FromString(TEXT("알 수 없는 목표")) : FText::FromString(TEXT("Unknown goal"));
 	}
+
+	FText BuildingTitle(const FSBCBuildGoal& Goal, AFGCharacterPlayer* Player)
+	{
+		if (Goal.BuildableClass)
+		{
+			return Goal.BuildableClass->GetDefaultObject<AFGBuildable>()->GetDismantleDisplayName_Implementation(Player);
+		}
+		return IsKorean() ? FText::FromString(TEXT("생산시설 미지정")) : FText::FromString(TEXT("No building"));
+	}
 }
 
 TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
@@ -152,10 +161,21 @@ void USBCGoalHUDWidget::RefreshGoals()
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
 				[
-					SNew(STextBlock)
-					.Text(GoalTitle(Goal, Player))
-					.ColorAndOpacity(bComplete ? FLinearColor(0.35f, 0.90f, 0.68f) : FLinearColor::White)
-					.Font(FCoreStyle::GetDefaultFontStyle(bSelected ? "Bold" : "Regular", 13))
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(STextBlock)
+						.Text(GoalTitle(Goal, Player))
+						.ColorAndOpacity(bComplete ? FLinearColor(0.35f, 0.90f, 0.68f) : FLinearColor::White)
+						.Font(FCoreStyle::GetDefaultFontStyle(bSelected ? "Bold" : "Regular", 13))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f, 0.0f, 0.0f)
+					[
+						SNew(STextBlock)
+						.Text(BuildingTitle(Goal, Player))
+						.ColorAndOpacity(FLinearColor(0.55f, 0.72f, 0.78f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+					]
 				]
 				+ SHorizontalBox::Slot().AutoWidth().Padding(10.0f, 0.0f)
 				[
@@ -182,6 +202,6 @@ void USBCGoalHUDWidget::RefreshGoals()
 			? FText::FromString(TEXT("↑↓ 선택  +/- 수량  Enter 수동 완료  L 기존 시설 연결  Delete 삭제  F8 숨기기"))
 			: FText::FromString(TEXT("↑↓ Select  +/- Count  Enter Manual  L Link existing  Delete Remove  F8 Hide")))
 		.ColorAndOpacity(FLinearColor(0.52f, 0.62f, 0.67f))
-		.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+		.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 	];
 }

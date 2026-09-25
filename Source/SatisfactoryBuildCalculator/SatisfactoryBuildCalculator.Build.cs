@@ -14,10 +14,17 @@ public class SatisfactoryBuildCalculator : ModuleRules
 			"Engine",
 			"FactoryGame",
 			"SML",
+			"Json",
+			"Projects",
 			"InputCore",
 			"Slate",
 			"SlateCore",
 			"UMG"
 		});
+
+		RuntimeDependencies.Add("$(PluginDir)/Data/items.json", StagedFileType.NonUFS);
+		RuntimeDependencies.Add("$(PluginDir)/Data/recipes.json", StagedFileType.NonUFS);
+		RuntimeDependencies.Add("$(PluginDir)/Data/buildings.json", StagedFileType.NonUFS);
+		RuntimeDependencies.Add("$(PluginDir)/Data/import_metadata.json", StagedFileType.NonUFS);
 	}
 }
