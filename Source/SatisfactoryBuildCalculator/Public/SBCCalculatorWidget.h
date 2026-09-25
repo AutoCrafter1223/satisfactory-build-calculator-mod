@@ -6,7 +6,7 @@
 #include "SBCCalculatorWidget.generated.h"
 
 class SVerticalBox;
-class SHorizontalBox;
+class SSBCPanGraph;
 struct FSBCProductionNode;
 
 struct FSBCCalculatedGoalRequest
@@ -38,8 +38,7 @@ protected:
 
 private:
 	TSharedPtr<SVerticalBox> ProductListBox;
-	TSharedPtr<SHorizontalBox> ResultColumnsBox;
-	TArray<TSharedPtr<SVerticalBox>> ResultColumns;
+	TSharedPtr<SSBCPanGraph> ResultGraph;
 	TSharedPtr<SVerticalBox> SummaryBox;
 	TSharedPtr<class SBox> RootSizeBox;
 	TSharedPtr<class SEditableTextBox> SearchBox;
@@ -52,6 +51,7 @@ private:
 	TMap<FString, FString> SelectedRecipes;
 	TMap<FString, FSBCMachineSettings> MachineSettings;
 	TSet<FString> CollapsedNodeIds;
+	FString SelectedGoalNodeId;
 	double TargetRate = 10.0;
 	int32 DefaultPowerShards = 0;
 	bool bKorean = true;
@@ -73,9 +73,10 @@ private:
 	void SetNodeSomersloops(const FString& NodeId, int32 Count);
 	void SetDefaultPowerShards(int32 Count);
 	void RefreshSummary(const TSharedPtr<FSBCProductionNode>& Root);
-	void AddResultNode(const TSharedPtr<FSBCProductionNode>& Node, int32 Depth, const FString& ParentName = FString());
-	TSharedPtr<SVerticalBox> EnsureResultColumn(int32 Depth);
+	void BuildResultGraph(const TSharedPtr<FSBCProductionNode>& Root);
+	TSharedRef<SWidget> BuildResultCard(const TSharedPtr<FSBCProductionNode>& Node, const FString& ParentName);
 	void ToggleNodeCollapsed(const FString& NodeId);
+	void SelectGoalNode(const FString& NodeId);
 	FLinearColor GetBuildingColor(const TSharedPtr<FSBCProductionNode>& Node) const;
 	FText Text(const TCHAR* Korean, const TCHAR* English) const;
 };

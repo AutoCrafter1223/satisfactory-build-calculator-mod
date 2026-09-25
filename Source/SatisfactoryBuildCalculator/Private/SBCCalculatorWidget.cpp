@@ -18,9 +18,182 @@
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SConstraintCanvas.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Rendering/DrawElements.h"
+
+class SSBCPanGraph final : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SSBCPanGraph) {}
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs)
+	{
+		SetClipping(EWidgetClipping::ClipToBoundsAlways);
+		ChildSlot
+		.HAlign(HAlign_Left)
+		.VAlign(VAlign_Top)
+		[
+			SAssignNew(ContentBox, SBox)
+			.WidthOverride(GraphSize.X)
+			.HeightOverride(GraphSize.Y)
+			[
+				SAssignNew(Canvas, SConstraintCanvas)
+			]
+		];
+		ApplyPan();
+	}
+
+	void ResetGraph(const FVector2D& NewSize)
+	{
+		GraphSize = FVector2D(FMath::Max(NewSize.X, 200.0f), FMath::Max(NewSize.Y, 200.0f));
+		Connections.Reset();
+		CardCenters.Reset();
+		if (Canvas.IsValid()) Canvas->ClearChildren();
+		if (ContentBox.IsValid())
+		{
+			ContentBox->SetWidthOverride(GraphSize.X);
+			ContentBox->SetHeightOverride(GraphSize.Y);
+		}
+		ClampPan();
+		Invalidate(EInvalidateWidgetReason::Layout);
+	}
+
+	void AddCard(const FString& NodeId, const FVector2D& Position, const FVector2D& Size, TSharedRef<SWidget> Card)
+	{
+		if (!Canvas.IsValid()) return;
+		Canvas->AddSlot()
+		.Offset(FMargin(Position.X, Position.Y, Size.X, Size.Y))
+		.Anchors(FAnchors(0.0f))
+		.Alignment(FVector2D::ZeroVector)
+		[
+			Card
+		];
+		CardCenters.Add(NodeId, Position + Size * 0.5f);
+	}
+
+	void AddConnection(const FVector2D& Start, const FVector2D& End)
+	{
+		Connections.Add(TPair<FVector2D, FVector2D>(Start, End));
+	}
+
+	void ResetView()
+	{
+		PanOffset = FVector2D(24.0f, 24.0f);
+		ClampPan();
+		ApplyPan();
+	}
+
+	void FocusCard(const FString& NodeId)
+	{
+		if (const FVector2D* Center = CardCenters.Find(NodeId))
+		{
+			PanOffset = LastViewportSize * 0.5f - *Center;
+			ClampPan();
+			ApplyPan();
+		}
+	}
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			bDragging = true;
+			return FReply::Handled().CaptureMouse(SharedThis(this));
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (bDragging && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		{
+			bDragging = false;
+			return FReply::Handled().ReleaseMouseCapture();
+		}
+		return FReply::Unhandled();
+	}
+
+	virtual FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		if (!bDragging || !HasMouseCapture()) return FReply::Unhandled();
+		PanOffset += MouseEvent.GetCursorDelta();
+		LastViewportSize = MyGeometry.GetLocalSize();
+		ClampPan();
+		ApplyPan();
+		return FReply::Handled();
+	}
+
+	virtual FReply OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
+	{
+		LastViewportSize = MyGeometry.GetLocalSize();
+		const float Amount = MouseEvent.GetWheelDelta() * 54.0f;
+		if (MouseEvent.IsShiftDown()) PanOffset.X += Amount;
+		else PanOffset.Y += Amount;
+		ClampPan();
+		ApplyPan();
+		return FReply::Handled();
+	}
+
+	virtual int32 OnPaint(
+		const FPaintArgs& Args,
+		const FGeometry& AllottedGeometry,
+		const FSlateRect& MyCullingRect,
+		FSlateWindowElementList& OutDrawElements,
+		int32 LayerId,
+		const FWidgetStyle& InWidgetStyle,
+		bool bParentEnabled) const override
+	{
+		const_cast<SSBCPanGraph*>(this)->LastViewportSize = AllottedGeometry.GetLocalSize();
+		for (const TPair<FVector2D, FVector2D>& Connection : Connections)
+		{
+			const FVector2D Start = Connection.Key + PanOffset;
+			const FVector2D End = Connection.Value + PanOffset;
+			const float MiddleX = (Start.X + End.X) * 0.5f;
+			TArray<FVector2D> Points{Start, FVector2D(MiddleX, Start.Y), FVector2D(MiddleX, End.Y), End};
+			FSlateDrawElement::MakeLines(
+				OutDrawElements,
+				LayerId,
+				AllottedGeometry.ToPaintGeometry(),
+				Points,
+				ESlateDrawEffect::None,
+				FLinearColor(0.34f, 0.62f, 0.66f, 0.78f),
+				true,
+				2.0f);
+		}
+		return SCompoundWidget::OnPaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements, LayerId + 1, InWidgetStyle, bParentEnabled);
+	}
+
+private:
+	TSharedPtr<SConstraintCanvas> Canvas;
+	TSharedPtr<SBox> ContentBox;
+	TArray<TPair<FVector2D, FVector2D>> Connections;
+	TMap<FString, FVector2D> CardCenters;
+	FVector2D GraphSize = FVector2D(1000.0f, 650.0f);
+	FVector2D LastViewportSize = FVector2D(1000.0f, 650.0f);
+	FVector2D PanOffset = FVector2D(24.0f, 24.0f);
+	bool bDragging = false;
+
+	void ApplyPan()
+	{
+		if (ContentBox.IsValid()) ContentBox->SetRenderTransform(FSlateRenderTransform(PanOffset));
+		Invalidate(EInvalidateWidgetReason::Paint);
+	}
+
+	void ClampPan()
+	{
+		const float Margin = 80.0f;
+		const float MinX = GraphSize.X <= LastViewportSize.X
+			? Margin : LastViewportSize.X - GraphSize.X - Margin;
+		const float MinY = GraphSize.Y <= LastViewportSize.Y
+			? Margin : LastViewportSize.Y - GraphSize.Y - Margin;
+		PanOffset.X = FMath::Clamp(PanOffset.X, MinX, Margin);
+		PanOffset.Y = FMath::Clamp(PanOffset.Y, MinY, Margin);
+	}
+};
 
 namespace
 {
@@ -69,6 +242,17 @@ namespace
 		{
 			GatherGoalPlan(Child, Requests);
 		}
+	}
+
+	TSharedPtr<FSBCProductionNode> FindProductionNode(const TSharedPtr<FSBCProductionNode>& Node, const FString& NodeId)
+	{
+		if (!Node) return nullptr;
+		if (Node->NodeId == NodeId) return Node;
+		for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
+		{
+			if (TSharedPtr<FSBCProductionNode> Match = FindProductionNode(Child, NodeId)) return Match;
+		}
+		return nullptr;
 	}
 }
 
@@ -124,6 +308,26 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 							{
 								bCompactView = !bCompactView;
 								CalculateSelected();
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text(Text(TEXT("공정도 초기 위치"), TEXT("Reset view")))
+							.OnClicked_Lambda([this]()
+							{
+								if (ResultGraph.IsValid()) ResultGraph->ResetView();
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text(Text(TEXT("선택 카드 보기"), TEXT("Focus selected")))
+							.OnClicked_Lambda([this]()
+							{
+								if (ResultGraph.IsValid()) ResultGraph->FocusCard(SelectedGoalNodeId);
 								return FReply::Handled();
 							})
 						]
@@ -238,7 +442,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 								+ SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
 								[
 									SNew(SButton)
-									.Text(Text(TEXT("목표 추가"), TEXT("Add goals")))
+									.Text(Text(TEXT("선택 공정 목표 추가"), TEXT("Add selected branch")))
 									.OnClicked_Lambda([this]()
 									{
 										OnRequestAddGoals.ExecuteIfBound();
@@ -257,16 +461,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 							]
 							+ SVerticalBox::Slot().FillHeight(1.0f)
 							[
-								SNew(SScrollBox)
-								+ SScrollBox::Slot()
-								[
-									SNew(SScrollBox)
-									.Orientation(Orient_Horizontal)
-									+ SScrollBox::Slot()
-									[
-										SAssignNew(ResultColumnsBox, SHorizontalBox)
-									]
-								]
+								SAssignNew(ResultGraph, SSBCPanGraph)
 							]
 						]
 					]
@@ -473,37 +668,43 @@ void USBCCalculatorWidget::SelectProduct(const FString& ItemId)
 	SelectedRecipes.Reset();
 	MachineSettings.Reset();
 	CollapsedNodeIds.Reset();
+	SelectedGoalNodeId = TEXT("root");
+	if (ResultGraph.IsValid()) ResultGraph->ResetView();
 	RefreshProductList();
 	CalculateSelected();
 }
 
 void USBCCalculatorWidget::CalculateSelected()
 {
-	if (!ResultColumnsBox.IsValid()) return;
+	if (!ResultGraph.IsValid()) return;
 	LastCalculatedRoot.Reset();
-	ResultColumnsBox->ClearChildren();
-	ResultColumns.Reset();
+	ResultGraph->ResetGraph(FVector2D(600.0f, 240.0f));
 	if (SummaryBox.IsValid()) SummaryBox->ClearChildren();
+	auto ShowMessage = [this](const FText& Message, const FLinearColor& Color)
+	{
+		ResultGraph->AddCard(TEXT("message"), FVector2D(20.0f, 20.0f), FVector2D(500.0f, 70.0f),
+			SNew(SBorder)
+			.Padding(12.0f)
+			.BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.10f, 0.88f))
+			[
+				SNew(STextBlock).Text(Message).ColorAndOpacity(Color).AutoWrapText(true)
+			]);
+	};
 	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
 	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
 	if (!Data || !Data->IsLoaded())
 	{
-		EnsureResultColumn(0)->AddSlot().AutoHeight()[SNew(STextBlock).Text(Text(TEXT("계산 데이터를 불러오지 못했습니다."), TEXT("Calculator data could not be loaded.")))];
+		ShowMessage(Text(TEXT("계산 데이터를 불러오지 못했습니다."), TEXT("Calculator data could not be loaded.")), FLinearColor::White);
 		return;
 	}
 	if (SelectedItemId.IsEmpty())
 	{
-		EnsureResultColumn(0)->AddSlot().AutoHeight()[SNew(STextBlock).Text(Text(TEXT("왼쪽에서 제품을 선택하세요."), TEXT("Select a product on the left.")))];
+		ShowMessage(Text(TEXT("왼쪽에서 제품을 선택하세요."), TEXT("Select a product on the left.")), FLinearColor::White);
 		return;
 	}
 	if (!IsProductUnlocked(SelectedItemId))
 	{
-		EnsureResultColumn(0)->AddSlot().AutoHeight()
-		[
-			SNew(STextBlock)
-			.Text(Text(TEXT("아직 해금되지 않은 제품입니다."), TEXT("This product has not been unlocked yet.")))
-			.ColorAndOpacity(FLinearColor(1.0f, 0.62f, 0.14f))
-		];
+		ShowMessage(Text(TEXT("아직 해금되지 않은 제품입니다."), TEXT("This product has not been unlocked yet.")), FLinearColor(1.0f, 0.62f, 0.14f));
 		return;
 	}
 
@@ -512,18 +713,20 @@ void USBCCalculatorWidget::CalculateSelected()
 	const TSharedPtr<FSBCProductionNode> Root = Calculator.Calculate(SelectedItemId, TargetRate, SelectedRecipes, MachineSettings, DefaultPowerShards, bKorean, 0.0, Error);
 	if (!Root)
 	{
-		EnsureResultColumn(0)->AddSlot().AutoHeight()[SNew(STextBlock).Text(FText::FromString(Error)).ColorAndOpacity(FLinearColor(1.0f, 0.35f, 0.25f))];
+		ShowMessage(FText::FromString(Error), FLinearColor(1.0f, 0.35f, 0.25f));
 		return;
 	}
 	LastCalculatedRoot = Root;
-	AddResultNode(Root, 0);
+	if (SelectedGoalNodeId.IsEmpty() || !FindProductionNode(Root, SelectedGoalNodeId)) SelectedGoalNodeId = Root->NodeId;
+	BuildResultGraph(Root);
 	RefreshSummary(Root);
 }
 
 TArray<FSBCCalculatedGoalRequest> USBCCalculatorWidget::GetGoalPlan() const
 {
 	TMap<FString, FSBCCalculatedGoalRequest> Requests;
-	GatherGoalPlan(LastCalculatedRoot, Requests);
+	TSharedPtr<FSBCProductionNode> SelectedRoot = FindProductionNode(LastCalculatedRoot, SelectedGoalNodeId);
+	GatherGoalPlan(SelectedRoot ? SelectedRoot : LastCalculatedRoot, Requests);
 	TArray<FSBCCalculatedGoalRequest> Result;
 	Requests.GenerateValueArray(Result);
 	return Result;
@@ -628,42 +831,6 @@ void USBCCalculatorWidget::SetDefaultPowerShards(int32 Count)
 	CalculateSelected();
 }
 
-TSharedPtr<SVerticalBox> USBCCalculatorWidget::EnsureResultColumn(int32 Depth)
-{
-	if (!ResultColumnsBox.IsValid()) return nullptr;
-	while (ResultColumns.Num() <= Depth)
-	{
-		const int32 ColumnDepth = ResultColumns.Num();
-		TSharedPtr<SVerticalBox> Column;
-		const FString ColumnTitle = ColumnDepth == 0
-			? (bKorean ? TEXT("완제품") : TEXT("Final product"))
-			: (bKorean
-				? FString::Printf(TEXT(">  재료 %d단계"), ColumnDepth)
-				: FString::Printf(TEXT(">  Ingredient level %d"), ColumnDepth));
-		ResultColumnsBox->AddSlot().AutoWidth().Padding(ColumnDepth == 0 ? 0.0f : 8.0f, 0.0f, 0.0f, 0.0f)
-		[
-			SNew(SBox)
-			.WidthOverride(bCompactView ? 205.0f : 285.0f)
-			[
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot().AutoHeight().Padding(2.0f, 0.0f, 2.0f, 6.0f)
-				[
-					SNew(STextBlock)
-					.Text(FText::FromString(ColumnTitle))
-					.ColorAndOpacity(ColumnDepth == 0 ? FLinearColor(1.0f, 0.66f, 0.18f) : FLinearColor(0.42f, 0.78f, 0.78f))
-					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-				]
-				+ SVerticalBox::Slot().AutoHeight()
-				[
-					SAssignNew(Column, SVerticalBox)
-				]
-			]
-		];
-		ResultColumns.Add(Column);
-	}
-	return ResultColumns[Depth];
-}
-
 void USBCCalculatorWidget::ToggleNodeCollapsed(const FString& NodeId)
 {
 	if (CollapsedNodeIds.Contains(NodeId))
@@ -675,6 +842,12 @@ void USBCCalculatorWidget::ToggleNodeCollapsed(const FString& NodeId)
 		CollapsedNodeIds.Add(NodeId);
 	}
 	CalculateSelected();
+}
+
+void USBCCalculatorWidget::SelectGoalNode(const FString& NodeId)
+{
+	SelectedGoalNodeId = NodeId;
+	BuildResultGraph(LastCalculatedRoot);
 }
 
 FLinearColor USBCCalculatorWidget::GetBuildingColor(const TSharedPtr<FSBCProductionNode>& Node) const
@@ -694,11 +867,79 @@ FLinearColor USBCCalculatorWidget::GetBuildingColor(const TSharedPtr<FSBCProduct
 	return FLinearColor(0.38f, 0.66f, 0.78f, 1.0f);
 }
 
-void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& Node, int32 Depth, const FString& ParentName)
+void USBCCalculatorWidget::BuildResultGraph(const TSharedPtr<FSBCProductionNode>& Root)
 {
-	if (!Node || !ResultColumnsBox.IsValid()) return;
-	TSharedPtr<SVerticalBox> Column = EnsureResultColumn(Depth);
-	if (!Column.IsValid()) return;
+	if (!Root || !ResultGraph.IsValid()) return;
+	struct FGraphEntry
+	{
+		TSharedPtr<FSBCProductionNode> Node;
+		FString ParentName;
+		FString ParentNodeId;
+		FVector2D Position;
+	};
+	TArray<FGraphEntry> Entries;
+	TMap<FString, FVector2D> Positions;
+	const float CardWidth = bCompactView ? 205.0f : 285.0f;
+	const float CardHeight = bCompactView ? 105.0f : 190.0f;
+	const float HorizontalGap = 74.0f;
+	const float VerticalGap = 26.0f;
+	float NextLeafCenterY = 40.0f + CardHeight * 0.5f;
+	int32 MaxDepth = 0;
+
+	TFunction<float(const TSharedPtr<FSBCProductionNode>&, int32, const FString&, const FString&)> LayoutNode;
+	LayoutNode = [this, &LayoutNode, &Entries, &Positions, &NextLeafCenterY, &MaxDepth,
+		CardWidth, CardHeight, HorizontalGap, VerticalGap](
+			const TSharedPtr<FSBCProductionNode>& Node,
+			int32 Depth,
+			const FString& ParentName,
+			const FString& ParentNodeId) -> float
+	{
+		MaxDepth = FMath::Max(MaxDepth, Depth);
+		TArray<float> ChildCenters;
+		if (!CollapsedNodeIds.Contains(Node->NodeId))
+		{
+			for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
+			{
+				ChildCenters.Add(LayoutNode(Child, Depth + 1, Node->ItemName, Node->NodeId));
+			}
+		}
+		float CenterY = NextLeafCenterY;
+		if (ChildCenters.IsEmpty())
+		{
+			NextLeafCenterY += CardHeight + VerticalGap;
+		}
+		else
+		{
+			CenterY = (ChildCenters[0] + ChildCenters.Last()) * 0.5f;
+		}
+		const FVector2D Position(40.0f + Depth * (CardWidth + HorizontalGap), CenterY - CardHeight * 0.5f);
+		Positions.Add(Node->NodeId, Position);
+		Entries.Add({Node, ParentName, ParentNodeId, Position});
+		return CenterY;
+	};
+
+	LayoutNode(Root, 0, FString(), FString());
+	const FVector2D GraphSize(
+		80.0f + (MaxDepth + 1) * CardWidth + MaxDepth * HorizontalGap,
+		FMath::Max(260.0f, NextLeafCenterY + CardHeight * 0.5f + 40.0f));
+	ResultGraph->ResetGraph(GraphSize);
+	for (const FGraphEntry& Entry : Entries)
+	{
+		ResultGraph->AddCard(Entry.Node->NodeId, Entry.Position, FVector2D(CardWidth, CardHeight), BuildResultCard(Entry.Node, Entry.ParentName));
+		if (!Entry.ParentNodeId.IsEmpty())
+		{
+			if (const FVector2D* ParentPosition = Positions.Find(Entry.ParentNodeId))
+			{
+				ResultGraph->AddConnection(
+					*ParentPosition + FVector2D(CardWidth, CardHeight * 0.5f),
+					Entry.Position + FVector2D(0.0f, CardHeight * 0.5f));
+			}
+		}
+	}
+}
+
+TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCProductionNode>& Node, const FString& ParentName)
+{
 	const FString RateUnit = Node->Unit == TEXT("m3") ? TEXT("m³/min") : (Node->bGenerator ? TEXT("MW") : TEXT("개/min"));
 	FString Detail;
 	if (Node->bRawResource)
@@ -735,126 +976,129 @@ void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& N
 	const FString ItemId = Node->ItemId;
 	const bool bHasChildren = !Node->Children.IsEmpty();
 	const bool bCollapsed = CollapsedNodeIds.Contains(NodeId);
+	const bool bSelected = SelectedGoalNodeId == NodeId;
+	const bool bRoot = NodeId == TEXT("root");
 	const FLinearColor Accent = GetBuildingColor(Node);
-	Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 7.0f)
+	return SNew(SBorder)
+	.Padding(bSelected ? 2.0f : 1.0f)
+	.BorderBackgroundColor(bSelected
+		? FLinearColor(1.0f, 0.62f, 0.12f, 0.98f)
+		: (bRoot ? FLinearColor(0.88f, 0.52f, 0.14f, 0.82f) : FLinearColor(0.24f, 0.34f, 0.38f, 0.88f)))
 	[
 		SNew(SBorder)
-		.Padding(1.0f)
-		.BorderBackgroundColor(Depth == 0 ? FLinearColor(1.0f, 0.66f, 0.18f, 0.92f) : FLinearColor(0.24f, 0.34f, 0.38f, 0.88f))
+		.Padding(0.0f)
+		.BorderBackgroundColor(FLinearColor(0.035f, 0.075f, 0.09f, 0.92f))
 		[
-			SNew(SBorder)
-			.Padding(0.0f)
-			.BorderBackgroundColor(FLinearColor(0.035f, 0.075f, 0.09f, 0.90f))
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth()
 			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth()
+				SNew(SBox).WidthOverride(4.0f)
 				[
-					SNew(SBox).WidthOverride(4.0f)
-					[
-						SNew(SBorder).BorderBackgroundColor(Accent)
-					]
+					SNew(SBorder).BorderBackgroundColor(Accent)
 				]
-				+ SHorizontalBox::Slot().FillWidth(1.0f)
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.0f)
+			[
+				SNew(SBorder)
+				.Padding(CardPadding)
+				.BorderBackgroundColor(FLinearColor::Transparent)
 				[
-					SNew(SBorder)
-					.Padding(CardPadding)
-					.BorderBackgroundColor(FLinearColor::Transparent)
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 3.0f)
 					[
-						SNew(SVerticalBox)
-						+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+						SNew(STextBlock)
+						.Visibility(ParentName.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible)
+						.Text(FText::FromString(ParentName.IsEmpty() ? FString() : FString::Printf(TEXT("<  %s"), *ParentName)))
+						.ColorAndOpacity(FLinearColor(0.38f, 0.66f, 0.70f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+						.AutoWrapText(true)
+					]
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
 						[
 							SNew(STextBlock)
-							.Visibility(ParentName.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible)
-							.Text(FText::FromString(ParentName.IsEmpty() ? FString() : FString::Printf(TEXT("<  %s"), *ParentName)))
-							.ColorAndOpacity(FLinearColor(0.38f, 0.66f, 0.70f))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+							.Text(FText::FromString(Node->ItemName))
+							.ColorAndOpacity(bRoot ? FLinearColor(1.0f, 0.70f, 0.27f) : FLinearColor::White)
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 11 : (bRoot ? 14 : 12)))
 							.AutoWrapText(true)
 						]
-						+ SVerticalBox::Slot().AutoHeight()
+						+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f, 0.0f, 0.0f, 0.0f)
 						[
-							SNew(SHorizontalBox)
-							+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-							[
-								SNew(STextBlock)
-								.Text(FText::FromString(Node->ItemName))
-								.ColorAndOpacity(Depth == 0 ? FLinearColor(1.0f, 0.70f, 0.27f) : FLinearColor::White)
-								.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 11 : (Depth == 0 ? 14 : 12)))
-								.AutoWrapText(true)
-							]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(5.0f, 0.0f, 0.0f, 0.0f)
-							[
-								SNew(SButton)
-								.Visibility(bHasChildren ? EVisibility::Visible : EVisibility::Collapsed)
-								.ContentPadding(FMargin(5.0f, 1.0f))
-								.Text(FText::FromString(bCollapsed ? TEXT("[+]") : TEXT("[-]")))
-								.OnClicked_Lambda([this, NodeId]() { ToggleNodeCollapsed(NodeId); return FReply::Handled(); })
-							]
+							SNew(SButton)
+							.ContentPadding(FMargin(5.0f, 1.0f))
+							.Text(bSelected ? Text(TEXT("선택됨"), TEXT("Selected")) : Text(TEXT("선택"), TEXT("Select")))
+							.OnClicked_Lambda([this, NodeId]() { SelectGoalNode(NodeId); return FReply::Handled(); })
 						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
+						+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f, 0.0f, 0.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Visibility(bHasChildren ? EVisibility::Visible : EVisibility::Collapsed)
+							.ContentPadding(FMargin(5.0f, 1.0f))
+							.Text(bCollapsed ? Text(TEXT("펴기"), TEXT("Expand")) : Text(TEXT("접기"), TEXT("Collapse")))
+							.OnClicked_Lambda([this, NodeId]() { ToggleNodeCollapsed(NodeId); return FReply::Handled(); })
+						]
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(FString::Printf(TEXT("%.2f %s"), Node->RequiredRate, *RateUnit)))
+						.ColorAndOpacity(FLinearColor(0.95f, 0.97f, 0.98f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 10 : 12))
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(bCompactView ? CompactDetail : Detail))
+						.ColorAndOpacity(FLinearColor(0.58f, 0.75f, 0.78f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", bCompactView ? 8 : 9))
+						.AutoWrapText(true)
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
+					[
+						SNew(SComboButton)
+						.Visibility(!bCompactView && !Node->bRawResource ? EVisibility::Visible : EVisibility::Collapsed)
+						.IsEnabled(CandidateRecipes && CandidateRecipes->Num() > 1)
+						.OnGetMenuContent_Lambda([this, NodeId, ItemId]() { return BuildRecipeMenu(NodeId, ItemId); })
+						.ButtonContent()
 						[
 							SNew(STextBlock)
-							.Text(FText::FromString(FString::Printf(TEXT("%.2f %s"), Node->RequiredRate, *RateUnit)))
-							.ColorAndOpacity(FLinearColor(0.95f, 0.97f, 0.98f))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 10 : 12))
+							.Text(FText::FromString(Node->RecipeName))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
+					]
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 5.0f, 0.0f, 0.0f)
+					[
+						SNew(SHorizontalBox)
+						.Visibility(!bCompactView && !Node->bRawResource && !Node->bGenerator ? EVisibility::Visible : EVisibility::Collapsed)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
 						[
-							SNew(STextBlock)
-							.Text(FText::FromString(bCompactView ? CompactDetail : Detail))
-							.ColorAndOpacity(FLinearColor(0.58f, 0.75f, 0.78f))
-							.Font(FCoreStyle::GetDefaultFontStyle("Regular", bCompactView ? 8 : 9))
-							.AutoWrapText(true)
+							SNew(STextBlock).Text(Text(TEXT("동력핵"), TEXT("Shards"))).Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
 						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
 						[
-							SNew(SComboButton)
-							.Visibility(!bCompactView && !Node->bRawResource ? EVisibility::Visible : EVisibility::Collapsed)
-							.IsEnabled(CandidateRecipes && CandidateRecipes->Num() > 1)
-							.OnGetMenuContent_Lambda([this, NodeId, ItemId]() { return BuildRecipeMenu(NodeId, ItemId); })
-							.ButtonContent()
-							[
-								SNew(STextBlock)
-								.Text(FText::FromString(Node->RecipeName))
-								.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-							]
+							SNew(SSpinBox<int32>)
+							.MinValue(0).MaxValue(3).MinSliderValue(0).MaxSliderValue(3)
+							.Value(Node->PowerShards)
+							.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodePowerShards(NodeId, Value); })
 						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 5.0f, 0.0f, 0.0f)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
 						[
-							SNew(SHorizontalBox)
-							.Visibility(!bCompactView && !Node->bRawResource && !Node->bGenerator ? EVisibility::Visible : EVisibility::Collapsed)
-							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
-							[
-								SNew(STextBlock).Text(Text(TEXT("동력핵"), TEXT("Shards"))).Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
-							]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-							[
-								SNew(SSpinBox<int32>)
-								.MinValue(0).MaxValue(3).MinSliderValue(0).MaxSliderValue(3)
-								.Value(Node->PowerShards)
-								.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodePowerShards(NodeId, Value); })
-							]
-							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
-							[
-								SNew(STextBlock).Text(Text(TEXT("소매슬루프"), TEXT("Somersloops"))).Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
-								.Visibility(MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
-							]
-							+ SHorizontalBox::Slot().AutoWidth()
-							[
-								SNew(SSpinBox<int32>)
-								.MinValue(0).MaxValue(MaxSomersloops).MinSliderValue(0).MaxSliderValue(MaxSomersloops)
-								.Value(Node->Somersloops)
-								.Visibility(MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
-								.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodeSomersloops(NodeId, Value); })
-							]
+							SNew(STextBlock).Text(Text(TEXT("소매슬루프"), TEXT("Somersloops"))).Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+							.Visibility(MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
+						]
+						+ SHorizontalBox::Slot().AutoWidth()
+						[
+							SNew(SSpinBox<int32>)
+							.MinValue(0).MaxValue(MaxSomersloops).MinSliderValue(0).MaxSliderValue(MaxSomersloops)
+							.Value(Node->Somersloops)
+							.Visibility(MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
+							.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodeSomersloops(NodeId, Value); })
 						]
 					]
 				]
 			]
 		]
 	];
-	if (bCollapsed) return;
-	for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
-	{
-		AddResultNode(Child, Depth + 1, Node->ItemName);
-	}
 }

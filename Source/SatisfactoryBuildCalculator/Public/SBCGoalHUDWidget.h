@@ -6,6 +6,7 @@
 
 class AFGCharacterPlayer;
 class SVerticalBox;
+class SScrollBox;
 
 UCLASS()
 class SATISFACTORYBUILDCALCULATOR_API USBCGoalHUDWidget final : public UUserWidget
@@ -22,8 +23,10 @@ protected:
 
 private:
 	TWeakObjectPtr<AFGCharacterPlayer> ObservedPlayer;
-	TSharedPtr<SVerticalBox> ContentBox;
+	TSharedPtr<SVerticalBox> GoalListBox;
+	TSharedPtr<SScrollBox> GoalScrollBox;
 	int32 SelectedGoalIndex = 0;
+	double SelectedHighlightUntil = 0.0;
 	uint32 LastRenderedStateHash = 0;
 	bool bHasRenderedState = false;
 };

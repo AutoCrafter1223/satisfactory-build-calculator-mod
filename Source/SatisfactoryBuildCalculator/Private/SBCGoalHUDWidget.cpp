@@ -9,6 +9,7 @@
 #include "Styling/CoreStyle.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -44,15 +45,50 @@ namespace
 
 TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 {
+	const bool bKorean = IsKorean();
 	TSharedRef<SWidget> Result =
 		SNew(SBox)
-		.WidthOverride(370.0f)
+		.WidthOverride(390.0f)
+		.HeightOverride(460.0f)
 		[
 			SNew(SBorder)
 			.Padding(FMargin(12.0f, 10.0f))
 			.BorderBackgroundColor(FLinearColor(0.025f, 0.055f, 0.07f, 0.68f))
 			[
-				SAssignNew(ContentBox, SVerticalBox)
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+				[
+					SNew(STextBlock)
+					.Text(bKorean ? FText::FromString(TEXT("건설 목표")) : FText::FromString(TEXT("BUILD GOALS")))
+					.ColorAndOpacity(FLinearColor(1.0f, 0.60f, 0.12f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 17))
+				]
+				+ SVerticalBox::Slot().AutoHeight()
+				[
+					SNew(STextBlock)
+					.Text(bKorean
+						? FText::FromString(TEXT("↑↓ 목표 선택 · +/- 수량 · Enter 완료/완료 취소"))
+						: FText::FromString(TEXT("↑↓ Select goal · +/- Count · Enter Complete/Undo")))
+					.ColorAndOpacity(FLinearColor(0.66f, 0.73f, 0.77f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f, 0.0f, 7.0f)
+				[
+					SNew(STextBlock)
+					.Text(bKorean
+						? FText::FromString(TEXT("F7 바라본 시설 추가 · L 시설 연결 · Delete 삭제 · F8 숨기기"))
+						: FText::FromString(TEXT("F7 Add aimed building · L Link · Delete Remove · F8 Hide")))
+					.ColorAndOpacity(FLinearColor(0.53f, 0.63f, 0.68f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				]
+				+ SVerticalBox::Slot().FillHeight(1.0f)
+				[
+					SAssignNew(GoalScrollBox, SScrollBox)
+					+ SScrollBox::Slot()
+					[
+						SAssignNew(GoalListBox, SVerticalBox)
+					]
+				]
 			]
 		];
 
@@ -75,19 +111,15 @@ void USBCGoalHUDWidget::SetObservedPlayer(AFGCharacterPlayer* Player)
 
 void USBCGoalHUDWidget::SetSelectedGoalIndex(int32 Index)
 {
-	const int32 NewIndex = FMath::Max(0, Index);
-	if (SelectedGoalIndex == NewIndex)
-	{
-		return;
-	}
-
-	SelectedGoalIndex = NewIndex;
+	SelectedGoalIndex = FMath::Max(0, Index);
+	SelectedHighlightUntil = FPlatformTime::Seconds() + 5.0;
+	bHasRenderedState = false;
 	RefreshGoals();
 }
 
 void USBCGoalHUDWidget::RefreshGoals()
 {
-	if (!ContentBox.IsValid())
+	if (!GoalListBox.IsValid())
 	{
 		return;
 	}
@@ -97,9 +129,8 @@ void USBCGoalHUDWidget::RefreshGoals()
 	ASBCGoalSubsystem* Subsystem = ASBCGoalSubsystem::Get(Player);
 	const TArray<FSBCBuildGoal> Goals = Subsystem ? Subsystem->GetGoalsForPlayer(Player) : TArray<FSBCBuildGoal>();
 
-	// The HUD is polled so replicated goal changes appear promptly, but rebuilding the
-	// entire Slate tree every poll causes visible flashing. Only rebuild when something
-	// the player can see has actually changed.
+	// This widget is polled so replicated goal changes appear promptly. Rebuilding only
+	// when visible state changes prevents the HUD from flashing every poll.
 	uint32 StateHash = GetTypeHash(bKorean);
 	StateHash = HashCombine(StateHash, GetTypeHash(SelectedGoalIndex));
 	StateHash = HashCombine(StateHash, GetTypeHash(Goals.Num()));
@@ -120,18 +151,10 @@ void USBCGoalHUDWidget::RefreshGoals()
 	LastRenderedStateHash = StateHash;
 	bHasRenderedState = true;
 
-	ContentBox->ClearChildren();
-	ContentBox->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
-	[
-		SNew(STextBlock)
-		.Text(bKorean ? FText::FromString(TEXT("건설 목표")) : FText::FromString(TEXT("BUILD GOALS")))
-		.ColorAndOpacity(FLinearColor(1.0f, 0.60f, 0.12f))
-		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 17))
-	];
-
+	GoalListBox->ClearChildren();
 	if (Goals.IsEmpty())
 	{
-		ContentBox->AddSlot().AutoHeight()
+		GoalListBox->AddSlot().AutoHeight()
 		[
 			SNew(STextBlock)
 			.Text(bKorean ? FText::FromString(TEXT("생산시설을 조준하고 F7을 눌러 목표를 추가하세요."))
@@ -142,66 +165,83 @@ void USBCGoalHUDWidget::RefreshGoals()
 		];
 	}
 
+	TSharedPtr<SWidget> SelectedCard;
+	const int32 ClampedSelectedIndex = FMath::Clamp(SelectedGoalIndex, 0, FMath::Max(0, Goals.Num() - 1));
 	for (int32 Index = 0; Index < Goals.Num(); ++Index)
 	{
 		const FSBCBuildGoal& Goal = Goals[Index];
-		const bool bSelected = Index == FMath::Clamp(SelectedGoalIndex, 0, FMath::Max(0, Goals.Num() - 1));
+		const bool bSelected = Index == ClampedSelectedIndex;
 		const bool bComplete = Goal.IsComplete();
 		const FString Progress = FString::Printf(TEXT("%d / %d"), Goal.CompletedCount, Goal.TargetCount);
 		const FString Completion = Goal.bManuallyCompleted
 			? (bKorean ? TEXT("수동 완료") : TEXT("MANUAL"))
 			: (bComplete ? (bKorean ? TEXT("완료") : TEXT("DONE")) : TEXT(""));
 
-		ContentBox->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+		TSharedPtr<SBorder> GoalCard;
+		GoalListBox->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
 		[
-			SNew(SBorder)
-			.Padding(FMargin(8.0f, 6.0f))
-			.BorderBackgroundColor(bSelected ? FLinearColor(0.10f, 0.18f, 0.20f, 0.82f) : FLinearColor(0.05f, 0.09f, 0.11f, 0.70f))
+			SAssignNew(GoalCard, SBorder)
+			.Padding(bSelected ? FMargin(3.0f, 0.0f, 0.0f, 0.0f) : FMargin(0.0f))
+			.BorderBackgroundColor(bSelected ? FLinearColor(1.0f, 0.55f, 0.08f, 0.95f) : FLinearColor::Transparent)
 			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				SNew(SBorder)
+				.Padding(FMargin(8.0f, 6.0f))
+				.BorderBackgroundColor_Lambda([this, bSelected]()
+				{
+					if (!bSelected)
+					{
+						return FSlateColor(FLinearColor(0.05f, 0.09f, 0.11f, 0.70f));
+					}
+					return FSlateColor(FPlatformTime::Seconds() < SelectedHighlightUntil
+						? FLinearColor(0.18f, 0.30f, 0.31f, 0.94f)
+						: FLinearColor(0.10f, 0.18f, 0.20f, 0.82f));
+				})
 				[
-					SNew(SVerticalBox)
-					+ SVerticalBox::Slot().AutoHeight()
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()
+						[
+							SNew(STextBlock)
+							.Text(GoalTitle(Goal, Player))
+							.ColorAndOpacity(bComplete ? FLinearColor(0.35f, 0.90f, 0.68f) : FLinearColor::White)
+							.Font(FCoreStyle::GetDefaultFontStyle(bSelected ? "Bold" : "Regular", 13))
+						]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f, 0.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text(BuildingTitle(Goal, Player))
+							.ColorAndOpacity(FLinearColor(0.55f, 0.72f, 0.78f))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+						]
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(10.0f, 0.0f)
 					[
 						SNew(STextBlock)
-						.Text(GoalTitle(Goal, Player))
-						.ColorAndOpacity(bComplete ? FLinearColor(0.35f, 0.90f, 0.68f) : FLinearColor::White)
-						.Font(FCoreStyle::GetDefaultFontStyle(bSelected ? "Bold" : "Regular", 13))
+						.Text(FText::FromString(Progress))
+						.ColorAndOpacity(FLinearColor(1.0f, 0.68f, 0.22f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
 					]
-					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f, 0.0f, 0.0f)
+					+ SHorizontalBox::Slot().AutoWidth()
 					[
 						SNew(STextBlock)
-						.Text(BuildingTitle(Goal, Player))
-						.ColorAndOpacity(FLinearColor(0.55f, 0.72f, 0.78f))
-						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+						.Text(FText::FromString(Completion))
+						.ColorAndOpacity(FLinearColor(0.35f, 0.90f, 0.68f))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
 					]
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(10.0f, 0.0f)
-				[
-					SNew(STextBlock)
-					.Text(FText::FromString(Progress))
-					.ColorAndOpacity(FLinearColor(1.0f, 0.68f, 0.22f))
-					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
-				]
-				+ SHorizontalBox::Slot().AutoWidth()
-				[
-					SNew(STextBlock)
-					.Text(FText::FromString(Completion.IsEmpty() ? TEXT("") : FString(TEXT("  ✓ ")) + Completion))
-					.ColorAndOpacity(FLinearColor(0.35f, 0.90f, 0.68f))
-					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
 				]
 			]
 		];
+
+		if (bSelected)
+		{
+			SelectedCard = GoalCard;
+		}
 	}
 
-	ContentBox->AddSlot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
-	[
-		SNew(STextBlock)
-		.Text(bKorean
-			? FText::FromString(TEXT("↑↓ 선택  +/- 수량  Enter 수동 완료  L 기존 시설 연결  Delete 삭제  F8 숨기기"))
-			: FText::FromString(TEXT("↑↓ Select  +/- Count  Enter Manual  L Link existing  Delete Remove  F8 Hide")))
-		.ColorAndOpacity(FLinearColor(0.52f, 0.62f, 0.67f))
-		.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-	];
+	if (GoalScrollBox.IsValid() && SelectedCard.IsValid())
+	{
+		GoalScrollBox->ScrollDescendantIntoView(SelectedCard, true, EDescendantScrollDestination::Center);
+	}
 }

@@ -21,12 +21,14 @@ The calculator closes with `Escape` without intentionally opening the pause menu
 - Keeps locked products visible with a text `Locked` badge.
 - Imports standard manufacturing recipes registered by other installed mods at runtime.
 - Supports per-card alternate recipes, Power Shards, and Somersloops.
-- Presents the chain as horizontal final-product, intermediate-material, and raw-resource card columns.
-- Offers detailed and compact card views with per-branch expand/collapse controls and building-specific accent colors.
+- Presents the chain as a connected parent-child card graph with building-specific accent colors.
+- Drag empty graph space with the left mouse button to pan; use the wheel vertically and `Shift` + wheel horizontally.
+- Provides reset-view and focus-selected-card controls, plus detailed and compact card views with text expand/collapse controls.
 - Summarizes machine count, raw resources, power consumption, and generation.
-- Adds the calculated manufacturing chain to construction goals with one button.
+- Selecting a card and pressing the goal button adds only that card and its descendants to construction goals.
 
 The HUD automatically uses Korean when the game culture is Korean. Other cultures use English.
+Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboard selection is visibly highlighted.
 
 ## Tracking rules
 
