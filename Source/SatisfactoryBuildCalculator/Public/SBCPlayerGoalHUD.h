@@ -10,6 +10,7 @@ class AFGPlayerController;
 class USBCGoalHUDWidget;
 class USBCCalculatorWidget;
 class USBCRemoteCallObject;
+struct FInputKeyBinding;
 
 UCLASS(NotBlueprintable, Transient)
 class SATISFACTORYBUILDCALCULATOR_API ASBCPlayerGoalHUD final : public AActor
@@ -39,12 +40,15 @@ private:
 	int32 SelectedGoalIndex = 0;
 	float RefreshAccumulator = 0.0f;
 	bool bCalculatorToggleBound = false;
+	bool bReleaseEscapeCapture = false;
+	FInputKeyBinding* CalculatorEscapeBinding = nullptr;
 
 	bool EnsureLocalPlayer();
 	USBCRemoteCallObject* GetRemoteCallObject() const;
 	AFGBuildable* GetLookedAtBuildable() const;
 	void ToggleWidget();
 	void ToggleCalculatorWidget();
+	void CloseCalculatorWidget();
 	void UpdateCalculatorLayout();
 	void AddLookedAtGoal();
 	void ChangeSelection(int32 Delta);

@@ -42,6 +42,11 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		if (InputComponent)
 		{
 			InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &ASBCPlayerGoalHUD::ToggleCalculatorWidget);
+			FInputKeyBinding& EscapeBinding = InputComponent->BindKey(
+				EKeys::Escape, IE_Pressed, this, &ASBCPlayerGoalHUD::CloseCalculatorWidget);
+			EscapeBinding.bConsumeInput = false;
+			CalculatorEscapeBinding = &EscapeBinding;
+			InputComponent->Priority = 1000;
 			bCalculatorToggleBound = true;
 		}
 	}
@@ -77,6 +82,11 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (bReleaseEscapeCapture && CalculatorEscapeBinding)
+	{
+		CalculatorEscapeBinding->bConsumeInput = false;
+		bReleaseEscapeCapture = false;
+	}
 	if (!EnsureLocalPlayer())
 	{
 		return;
@@ -150,6 +160,19 @@ void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
 {
 	if (!CalculatorWidget || !PlayerController) return;
 	const bool bOpen = CalculatorWidget->GetVisibility() == ESlateVisibility::Collapsed;
+	if (CalculatorEscapeBinding)
+	{
+		if (bOpen)
+		{
+			CalculatorEscapeBinding->bConsumeInput = true;
+		}
+		else
+		{
+			// Keep Escape consumed for the frame that closes the calculator. Release
+			// it on the next tick so the pause menu does not open underneath it.
+			bReleaseEscapeCapture = true;
+		}
+	}
 	if (bOpen)
 	{
 		UpdateCalculatorLayout();
@@ -167,6 +190,14 @@ void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
 	else
 	{
 		PlayerController->SetInputMode(FInputModeGameOnly());
+	}
+}
+
+void ASBCPlayerGoalHUD::CloseCalculatorWidget()
+{
+	if (CalculatorWidget && CalculatorWidget->GetVisibility() == ESlateVisibility::Visible)
+	{
+		ToggleCalculatorWidget();
 	}
 }
 

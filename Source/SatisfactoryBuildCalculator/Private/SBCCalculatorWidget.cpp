@@ -55,7 +55,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 				+ SVerticalBox::Slot().FillHeight(1.0f)
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().FillWidth(0.36f).Padding(0.0f, 0.0f, 12.0f, 0.0f)
+					+ SHorizontalBox::Slot().FillWidth(0.25f).Padding(0.0f, 0.0f, 12.0f, 0.0f)
 					[
 						SNew(SBorder)
 						.Padding(10.0f)
@@ -82,7 +82,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 							]
 						]
 					]
-					+ SHorizontalBox::Slot().FillWidth(0.64f)
+					+ SHorizontalBox::Slot().FillWidth(0.75f)
 					[
 						SNew(SBorder)
 						.Padding(12.0f)
