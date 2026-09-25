@@ -1,0 +1,32 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"SemVersion": "0.1.0",
+	"GameVersion": ">=502094",
+	"FriendlyName": "Satisfactory Build Calculator",
+	"Description": "In-game production goals and automatic construction progress tracking.",
+	"Category": "Utility",
+	"CreatedBy": "Gyeong-Seog Yoo",
+	"CreatedByURL": "https://github.com/gyeong-seog/satisfactory-build-calculator",
+	"DocsURL": "https://github.com/gyeong-seog/satisfactory-build-calculator",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/gyeong-seog/satisfactory-build-calculator/issues",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "SatisfactoryBuildCalculator",
+			"Type": "Runtime",
+			"LoadingPhase": "PostDefault"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "SML",
+			"Enabled": true
+		}
+	]
+}
