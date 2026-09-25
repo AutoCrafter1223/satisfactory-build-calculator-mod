@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "SBCLocalization.h"
 
 struct FSBCIngredientDefinition
 {
@@ -13,6 +14,7 @@ struct FSBCItemDefinition
 	FString Id;
 	FString NameKo;
 	FString NameEn;
+	FString LocalizedName;
 	FString Unit = TEXT("items");
 	bool bRawResource = false;
 };
@@ -22,6 +24,7 @@ struct FSBCBuildingDefinition
 	FString Id;
 	FString NameKo;
 	FString NameEn;
+	FString LocalizedName;
 	double BasePowerMW = 0.0;
 	double PowerExponent = 1.321929;
 	double BoostPowerExponent = 2.0;
@@ -35,6 +38,7 @@ struct FSBCRecipeDefinition
 	FString Id;
 	FString NameKo;
 	FString NameEn;
+	FString LocalizedName;
 	FString OutputItemId;
 	double OutputAmount = 0.0;
 	double DurationSeconds = 0.0;
@@ -119,7 +123,7 @@ public:
 		const TMap<FString, FString>& SelectedRecipes,
 		const TMap<FString, FSBCMachineSettings>& MachineSettings,
 		int32 DefaultPowerShards,
-		bool bKorean,
+		ESBCLanguage Language,
 		double ExistingGridMW,
 		FString& OutError) const;
 
@@ -133,7 +137,7 @@ private:
 		const TMap<FString, FString>& SelectedRecipes,
 		const TMap<FString, FSBCMachineSettings>& MachineSettings,
 		int32 DefaultPowerShards,
-		bool bKorean,
+		ESBCLanguage Language,
 		double ExistingGridMW,
 		const TSet<FString>& Ancestry,
 		FString& OutError) const;

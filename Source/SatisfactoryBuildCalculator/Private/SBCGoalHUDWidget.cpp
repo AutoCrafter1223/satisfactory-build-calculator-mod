@@ -7,6 +7,7 @@
 #include "Internationalization/Internationalization.h"
 #include "SBCGoalSubsystem.h"
 #include "SBCHotkeyConfig.h"
+#include "SBCLocalization.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -16,11 +17,6 @@
 
 namespace
 {
-	bool IsKorean()
-	{
-		return FInternationalization::Get().GetCurrentCulture()->GetTwoLetterISOLanguageName() == TEXT("ko");
-	}
-
 	FText GoalTitle(const FSBCBuildGoal& Goal, AFGCharacterPlayer* Player)
 	{
 		if (Goal.RecipeClass)
@@ -31,7 +27,7 @@ namespace
 		{
 			return Goal.BuildableClass->GetDefaultObject<AFGBuildable>()->GetDismantleDisplayName_Implementation(Player);
 		}
-		return IsKorean() ? FText::FromString(TEXT("알 수 없는 목표")) : FText::FromString(TEXT("Unknown goal"));
+		return SBCLocalization::Text(SBCLocalization::GetCurrentLanguage(), TEXT("알 수 없는 목표"), TEXT("Unknown goal"), TEXT("未知目标"), TEXT("Unbekanntes Ziel"));
 	}
 
 	FText BuildingTitle(const FSBCBuildGoal& Goal, AFGCharacterPlayer* Player)
@@ -40,7 +36,7 @@ namespace
 		{
 			return Goal.BuildableClass->GetDefaultObject<AFGBuildable>()->GetDismantleDisplayName_Implementation(Player);
 		}
-		return IsKorean() ? FText::FromString(TEXT("생산시설 미지정")) : FText::FromString(TEXT("No building"));
+		return SBCLocalization::Text(SBCLocalization::GetCurrentLanguage(), TEXT("생산시설 미지정"), TEXT("No building"), TEXT("未指定建筑"), TEXT("Kein Gebäude"));
 	}
 }
 
@@ -59,7 +55,7 @@ TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
 				[
 					SNew(STextBlock)
-					.Text_Lambda([]() { return IsKorean() ? FText::FromString(TEXT("건설 목표")) : FText::FromString(TEXT("BUILD GOALS")); })
+					.Text_Lambda([]() { return SBCLocalization::Text(SBCLocalization::GetCurrentLanguage(), TEXT("건설 목표"), TEXT("BUILD GOALS"), TEXT("建造目标"), TEXT("BAUZIELE")); })
 					.ColorAndOpacity(FLinearColor(1.0f, 0.60f, 0.12f))
 					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 17))
 				]
@@ -69,9 +65,13 @@ TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 					.Text_Lambda([this]()
 					{
 						const FString Key = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::ManualCompletion).ToString();
-						return IsKorean()
-							? FText::FromString(FString::Printf(TEXT("↑↓ 선택 · +/- 수량 · %s 완료/취소"), *Key))
-							: FText::FromString(FString::Printf(TEXT("↑↓ Select · +/- Count · %s Complete/Undo"), *Key));
+						return FText::FromString(SBCLocalization::Format(
+							SBCLocalization::String(SBCLocalization::GetCurrentLanguage(),
+								TEXT("↑↓ 선택 · +/- 수량 · {0} 완료/취소"),
+								TEXT("↑↓ Select · +/- Count · {0} Complete/Undo"),
+								TEXT("↑↓ 选择 · +/- 数量 · {0} 完成/撤销"),
+								TEXT("↑↓ Auswahl · +/- Anzahl · {0} Fertig/Zurück")),
+							Key));
 					})
 					.ColorAndOpacity(FLinearColor(0.66f, 0.73f, 0.77f))
 					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
@@ -83,9 +83,13 @@ TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 					{
 						const FString AddKey = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString();
 						const FString HudKey = SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::ToggleGoalHUD).ToString();
-						return IsKorean()
-							? FText::FromString(FString::Printf(TEXT("%s 시설 추가 · L 연결 · Del 삭제 · %s 숨김"), *AddKey, *HudKey))
-							: FText::FromString(FString::Printf(TEXT("%s Add · L Link · Del Remove · %s Hide"), *AddKey, *HudKey));
+						return FText::FromString(SBCLocalization::Format(
+							SBCLocalization::String(SBCLocalization::GetCurrentLanguage(),
+								TEXT("{0} 시설 추가 · L 연결 · Del 삭제 · {1} 숨김"),
+								TEXT("{0} Add · L Link · Del Remove · {1} Hide"),
+								TEXT("{0} 添加设施 · L 连接 · Del 删除 · {1} 隐藏"),
+								TEXT("{0} Gebäude · L Verbinden · Entf Löschen · {1} Ausblenden")),
+							AddKey, HudKey));
 					})
 					.ColorAndOpacity(FLinearColor(0.53f, 0.63f, 0.68f))
 					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
@@ -133,14 +137,12 @@ void USBCGoalHUDWidget::RefreshGoals()
 		return;
 	}
 
-	const bool bKorean = IsKorean();
+	const ESBCLanguage Language = SBCLocalization::GetCurrentLanguage();
 	AFGCharacterPlayer* Player = ObservedPlayer.Get();
 	ASBCGoalSubsystem* Subsystem = ASBCGoalSubsystem::Get(Player);
 	const TArray<FSBCBuildGoal> Goals = Subsystem ? Subsystem->GetGoalsForPlayer(Player) : TArray<FSBCBuildGoal>();
 
-	// This widget is polled so replicated goal changes appear promptly. Rebuilding only
-	// when visible state changes prevents the HUD from flashing every poll.
-	uint32 StateHash = GetTypeHash(bKorean);
+	uint32 StateHash = GetTypeHash(static_cast<uint8>(Language));
 	StateHash = HashCombine(StateHash, GetTypeHash(SelectedGoalIndex));
 	StateHash = HashCombine(StateHash, GetTypeHash(Goals.Num()));
 	for (const FSBCBuildGoal& Goal : Goals)
@@ -166,11 +168,13 @@ void USBCGoalHUDWidget::RefreshGoals()
 		GoalListBox->AddSlot().AutoHeight()
 		[
 			SNew(STextBlock)
-			.Text(FText::FromString(bKorean
-				? FString::Printf(TEXT("생산시설을 조준하고 %s을 눌러 목표를 추가하세요."),
-					*SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString())
-				: FString::Printf(TEXT("Aim at a production building and press %s to add a goal."),
-					*SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString())))
+			.Text(FText::FromString(SBCLocalization::Format(
+				SBCLocalization::String(Language,
+					TEXT("생산시설을 조준하고 {0}을 눌러 목표를 추가하세요."),
+					TEXT("Aim at a production building and press {0} to add a goal."),
+					TEXT("瞄准生产建筑并按 {0} 添加目标。"),
+					TEXT("Ziele auf ein Produktionsgebäude und drücke {0}, um ein Ziel hinzuzufügen.")),
+				SBCHotkeys::GetDisplayName(this, ESBCHotkeyAction::AddAimedBuilding).ToString())))
 			.ColorAndOpacity(FLinearColor(0.72f, 0.78f, 0.82f))
 			.AutoWrapText(true)
 			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
@@ -186,8 +190,8 @@ void USBCGoalHUDWidget::RefreshGoals()
 		const bool bComplete = Goal.IsComplete();
 		const FString Progress = FString::Printf(TEXT("%d / %d"), Goal.CompletedCount, Goal.TargetCount);
 		const FString Completion = Goal.bManuallyCompleted
-			? (bKorean ? TEXT("수동 완료") : TEXT("MANUAL"))
-			: (bComplete ? (bKorean ? TEXT("완료") : TEXT("DONE")) : TEXT(""));
+			? SBCLocalization::String(Language, TEXT("수동 완료"), TEXT("MANUAL"), TEXT("手动完成"), TEXT("MANUELL"))
+			: (bComplete ? SBCLocalization::String(Language, TEXT("완료"), TEXT("DONE"), TEXT("完成"), TEXT("FERTIG")) : TEXT(""));
 
 		TSharedPtr<SBorder> GoalCard;
 		GoalListBox->AddSlot().AutoHeight().Padding(0.0f, 2.0f)

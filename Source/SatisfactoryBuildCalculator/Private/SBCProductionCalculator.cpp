@@ -69,9 +69,10 @@ namespace
 		}
 	}
 
-	FString Localized(const FString& Korean, const FString& English, bool bKorean)
+	FString Localized(const FString& RuntimeName, const FString& Korean, const FString& English, ESBCLanguage Language)
 	{
-		return bKorean ? Korean : (English.IsEmpty() ? Korean : English);
+		if (!RuntimeName.IsEmpty()) return RuntimeName;
+		return Language == ESBCLanguage::Korean ? Korean : (English.IsEmpty() ? Korean : English);
 	}
 
 	double NormalizeItemAmount(const FItemAmount& ItemAmount)
@@ -128,6 +129,7 @@ bool FSBCProductionData::Load(FString& OutError)
 		Item.Id = StringOr(Object, TEXT("id"));
 		Item.NameKo = StringOr(Object, TEXT("name_ko"));
 		Item.NameEn = StringOr(Object, TEXT("name_en"));
+		Item.LocalizedName = Item.NameEn.IsEmpty() ? Item.NameKo : Item.NameEn;
 		Item.Unit = StringOr(Object, TEXT("unit"), TEXT("items"));
 		Item.bRawResource = BoolOr(Object, TEXT("is_raw_resource"));
 		if (!Item.Id.IsEmpty()) Items.Add(Item.Id, MoveTemp(Item));
@@ -146,6 +148,7 @@ bool FSBCProductionData::Load(FString& OutError)
 		Building.Id = StringOr(Object, TEXT("id"));
 		Building.NameKo = StringOr(Object, TEXT("name_ko"));
 		Building.NameEn = StringOr(Object, TEXT("name_en"));
+		Building.LocalizedName = Building.NameEn.IsEmpty() ? Building.NameKo : Building.NameEn;
 		Building.BasePowerMW = NumberOr(Object, TEXT("base_power_mw"));
 		Building.PowerExponent = NumberOr(Object, TEXT("power_exponent"), 1.321929);
 		Building.BoostPowerExponent = NumberOr(Object, TEXT("boost_power_exponent"), 2.0);
@@ -168,6 +171,7 @@ bool FSBCProductionData::Load(FString& OutError)
 		Recipe.Id = StringOr(Object, TEXT("id"));
 		Recipe.NameKo = StringOr(Object, TEXT("name"));
 		Recipe.NameEn = StringOr(Object, TEXT("name_en"));
+		Recipe.LocalizedName = Recipe.NameEn.IsEmpty() ? Recipe.NameKo : Recipe.NameEn;
 		Recipe.OutputItemId = StringOr(Object, TEXT("output_item_id"));
 		Recipe.OutputAmount = NumberOr(Object, TEXT("output_amount"));
 		Recipe.DurationSeconds = NumberOr(Object, TEXT("duration_seconds"));
@@ -203,6 +207,71 @@ bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FStrin
 		return false;
 	}
 
+	const ESBCLanguage Language = SBCLocalization::GetCurrentLanguage();
+	for (TPair<FString, FSBCItemDefinition>& Pair : Items)
+	{
+		Pair.Value.LocalizedName = Localized(FString(), Pair.Value.NameKo, Pair.Value.NameEn, Language);
+	}
+	for (TPair<FString, FSBCBuildingDefinition>& Pair : Buildings)
+	{
+		Pair.Value.LocalizedName = Localized(FString(), Pair.Value.NameKo, Pair.Value.NameEn, Language);
+	}
+	for (TPair<FString, FSBCRecipeDefinition>& Pair : Recipes)
+	{
+		Pair.Value.LocalizedName = Localized(FString(), Pair.Value.NameKo, Pair.Value.NameEn, Language);
+	}
+	auto UpdateItem = [this](TSubclassOf<UFGItemDescriptor> ItemClass)
+	{
+		if (!ItemClass) return;
+		const FString ItemId = ItemClass->GetName();
+		const FString DisplayName = UFGItemDescriptor::GetItemName(ItemClass).ToString();
+		if (FSBCItemDefinition* Existing = Items.Find(ItemId))
+		{
+			Existing->LocalizedName = DisplayName;
+			return;
+		}
+		FSBCItemDefinition Item;
+		Item.Id = ItemId;
+		Item.NameKo = DisplayName;
+		Item.NameEn = DisplayName;
+		Item.LocalizedName = DisplayName;
+		Item.Unit = UnitForItem(ItemClass);
+		Items.Add(Item.Id, MoveTemp(Item));
+	};
+	auto UpdateBuilding = [this, RecipeManager](TSubclassOf<AFGBuildableFactory> FactoryClass)
+	{
+		if (!FactoryClass) return;
+		const FString BuildingId = FactoryClass->GetName();
+		FString DisplayName = BuildingId;
+		if (TSubclassOf<UFGBuildingDescriptor> Descriptor = RecipeManager->FindBuildingDescriptorByClass(FactoryClass))
+		{
+			DisplayName = UFGItemDescriptor::GetItemName(Descriptor).ToString();
+		}
+		if (FSBCBuildingDefinition* Existing = Buildings.Find(BuildingId))
+		{
+			Existing->LocalizedName = DisplayName;
+			return;
+		}
+		FSBCBuildingDefinition Building;
+		Building.Id = BuildingId;
+		Building.NameKo = DisplayName;
+		Building.NameEn = DisplayName;
+		Building.LocalizedName = DisplayName;
+		if (const AFGBuildableFactory* FactoryCDO = FactoryClass->GetDefaultObject<AFGBuildableFactory>())
+		{
+			Building.BasePowerMW = FactoryCDO->GetDefaultProducingPowerConsumption();
+		}
+		Buildings.Add(Building.Id, MoveTemp(Building));
+	};
+
+	for (const TSubclassOf<AFGBuildable>& BuildableClass : RecipeManager->GetAvailableBuildingsOfType<AFGBuildable>())
+	{
+		if (BuildableClass && BuildableClass->IsChildOf(AFGBuildableFactory::StaticClass()))
+		{
+			UpdateBuilding(TSubclassOf<AFGBuildableFactory>(BuildableClass.Get()));
+		}
+	}
+
 	for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllRecipes())
 	{
 		if (!RecipeClass)
@@ -210,34 +279,11 @@ bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FStrin
 			continue;
 		}
 		const FString RecipeId = RecipeClass->GetName();
-		if (Recipes.Contains(RecipeId))
-		{
-			continue;
-		}
-
 		const TArray<FItemAmount> Products = UFGRecipe::GetProducts(RecipeClass);
 		const TArray<FItemAmount> Ingredients = UFGRecipe::GetIngredients(WorldContext, RecipeClass);
 		const float Duration = UFGRecipe::GetManufacturingDuration(RecipeClass);
-		if (Products.IsEmpty() || !Products[0].ItemClass || Duration <= 0.0f)
-		{
-			continue;
-		}
-
-		auto EnsureItem = [this](TSubclassOf<UFGItemDescriptor> ItemClass)
-		{
-			if (!ItemClass) return;
-			const FString ItemId = ItemClass->GetName();
-			if (Items.Contains(ItemId)) return;
-			FSBCItemDefinition Item;
-			Item.Id = ItemId;
-			Item.NameKo = UFGItemDescriptor::GetItemName(ItemClass).ToString();
-			Item.NameEn = Item.NameKo;
-			Item.Unit = UnitForItem(ItemClass);
-			Items.Add(Item.Id, MoveTemp(Item));
-		};
-
-		for (const FItemAmount& Product : Products) EnsureItem(Product.ItemClass);
-		for (const FItemAmount& Ingredient : Ingredients) EnsureItem(Ingredient.ItemClass);
+		for (const FItemAmount& Product : Products) UpdateItem(Product.ItemClass);
+		for (const FItemAmount& Ingredient : Ingredients) UpdateItem(Ingredient.ItemClass);
 
 		TArray<TSubclassOf<UObject>> Producers = UFGRecipe::GetProducedIn(RecipeClass);
 		TSubclassOf<AFGBuildableFactory> FactoryClass;
@@ -249,33 +295,27 @@ bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FStrin
 				break;
 			}
 		}
+		UpdateBuilding(FactoryClass);
+		if (FSBCRecipeDefinition* Existing = Recipes.Find(RecipeId))
+		{
+			Existing->LocalizedName = UFGRecipe::GetRecipeName(RecipeClass).ToString();
+			continue;
+		}
+		if (Products.IsEmpty() || !Products[0].ItemClass || Duration <= 0.0f)
+		{
+			continue;
+		}
 		if (!FactoryClass)
 		{
 			continue;
 		}
 
 		const FString BuildingId = FactoryClass->GetName();
-		if (!Buildings.Contains(BuildingId))
-		{
-			FSBCBuildingDefinition Building;
-			Building.Id = BuildingId;
-			Building.NameKo = BuildingId;
-			if (TSubclassOf<UFGBuildingDescriptor> Descriptor = RecipeManager->FindBuildingDescriptorByClass(FactoryClass))
-			{
-				Building.NameKo = UFGItemDescriptor::GetItemName(Descriptor).ToString();
-			}
-			Building.NameEn = Building.NameKo;
-			if (const AFGBuildableFactory* FactoryCDO = FactoryClass->GetDefaultObject<AFGBuildableFactory>())
-			{
-				Building.BasePowerMW = FactoryCDO->GetDefaultProducingPowerConsumption();
-			}
-			Buildings.Add(Building.Id, MoveTemp(Building));
-		}
-
 		FSBCRecipeDefinition Recipe;
 		Recipe.Id = RecipeId;
 		Recipe.NameKo = UFGRecipe::GetRecipeName(RecipeClass).ToString();
 		Recipe.NameEn = Recipe.NameKo;
+		Recipe.LocalizedName = Recipe.NameKo;
 		Recipe.OutputItemId = Products[0].ItemClass->GetName();
 		Recipe.OutputAmount = NormalizeItemAmount(Products[0]);
 		Recipe.DurationSeconds = Duration;
@@ -303,6 +343,40 @@ bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FStrin
 
 	for (TPair<FString, FSBCItemDefinition>& Pair : Items)
 	{
+		if (Pair.Value.LocalizedName.IsEmpty())
+		{
+			Pair.Value.LocalizedName = Localized(FString(), Pair.Value.NameKo, Pair.Value.NameEn, Language);
+		}
+	}
+	for (TPair<FString, FSBCBuildingDefinition>& Pair : Buildings)
+	{
+		if (Pair.Value.LocalizedName.IsEmpty())
+		{
+			Pair.Value.LocalizedName = Localized(FString(), Pair.Value.NameKo, Pair.Value.NameEn, Language);
+		}
+	}
+	for (TPair<FString, FSBCRecipeDefinition>& Pair : Recipes)
+	{
+		FSBCRecipeDefinition& Recipe = Pair.Value;
+		if (Recipe.Kind != TEXT("manufacturing"))
+		{
+			const FSBCBuildingDefinition* Building = Buildings.Find(Recipe.BuildingId);
+			const FSBCItemDefinition* Fuel = Recipe.Ingredients.IsEmpty() ? nullptr : Items.Find(Recipe.Ingredients[0].ItemId);
+			if (Building)
+			{
+				Recipe.LocalizedName = Fuel
+					? FString::Printf(TEXT("%s · %s"), *Building->LocalizedName, *Fuel->LocalizedName)
+					: Building->LocalizedName;
+			}
+		}
+		if (Recipe.LocalizedName.IsEmpty())
+		{
+			Recipe.LocalizedName = Localized(FString(), Recipe.NameKo, Recipe.NameEn, Language);
+		}
+	}
+
+	for (TPair<FString, FSBCItemDefinition>& Pair : Items)
+	{
 		if (!RecipesByOutput.Contains(Pair.Key))
 		{
 			Pair.Value.bRawResource = true;
@@ -324,33 +398,33 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::Calculate(
 	const TMap<FString, FString>& SelectedRecipes,
 	const TMap<FString, FSBCMachineSettings>& MachineSettings,
 	int32 DefaultPowerShards,
-	bool bKorean,
+	ESBCLanguage Language,
 	double ExistingGridMW,
 	FString& OutError) const
 {
 	OutError.Reset();
 	if (!Data.FindItem(TargetItemId))
 	{
-		OutError = bKorean ? TEXT("존재하지 않는 아이템입니다.") : TEXT("Unknown item.");
+		OutError = SBCLocalization::String(Language, TEXT("존재하지 않는 아이템입니다."), TEXT("Unknown item."), TEXT("未知物品。"), TEXT("Unbekannter Gegenstand."));
 		return nullptr;
 	}
 	if (TargetRate <= 0.0)
 	{
-		OutError = bKorean ? TEXT("목표 생산량은 0보다 커야 합니다.") : TEXT("Target must be greater than zero.");
+		OutError = SBCLocalization::String(Language, TEXT("목표 생산량은 0보다 커야 합니다."), TEXT("Target must be greater than zero."), TEXT("目标产量必须大于零。"), TEXT("Die Zielrate muss größer als null sein."));
 		return nullptr;
 	}
 	if (DefaultPowerShards < 0 || DefaultPowerShards > 3)
 	{
-		OutError = bKorean ? TEXT("동력핵은 0~3개여야 합니다.") : TEXT("Power Shards must be 0-3.");
+		OutError = SBCLocalization::String(Language, TEXT("동력핵은 0~3개여야 합니다."), TEXT("Power Shards must be 0-3."), TEXT("能量碎片数量必须为 0–3。"), TEXT("Die Anzahl der Energiesplitter muss zwischen 0 und 3 liegen."));
 		return nullptr;
 	}
 	if (ExistingGridMW < 0.0)
 	{
-		OutError = bKorean ? TEXT("기존 전력망 발전량은 0 이상이어야 합니다.") : TEXT("Existing grid power cannot be negative.");
+		OutError = SBCLocalization::String(Language, TEXT("기존 전력망 발전량은 0 이상이어야 합니다."), TEXT("Existing grid power cannot be negative."), TEXT("现有电网功率不能为负数。"), TEXT("Die vorhandene Netzleistung darf nicht negativ sein."));
 		return nullptr;
 	}
 	return BuildNode(TargetItemId, TargetRate, TEXT("root"), SelectedRecipes, MachineSettings,
-		DefaultPowerShards, bKorean, ExistingGridMW, {}, OutError);
+		DefaultPowerShards, Language, ExistingGridMW, {}, OutError);
 }
 
 const FSBCRecipeDefinition* FSBCProductionCalculator::SelectRecipe(
@@ -382,7 +456,7 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
 	const TMap<FString, FString>& SelectedRecipes,
 	const TMap<FString, FSBCMachineSettings>& MachineSettings,
 	int32 DefaultPowerShards,
-	bool bKorean,
+	ESBCLanguage Language,
 	double ExistingGridMW,
 	const TSet<FString>& Ancestry,
 	FString& OutError) const
@@ -391,15 +465,16 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
 	if (!Item) return nullptr;
 	if (Ancestry.Contains(ItemId))
 	{
-		OutError = bKorean ? FString::Printf(TEXT("순환 레시피를 감지했습니다: %s"), *Item->NameKo)
-			: FString::Printf(TEXT("Cyclic recipe: %s"), *Item->NameEn);
+		OutError = SBCLocalization::Format(
+			SBCLocalization::String(Language, TEXT("순환 제조법을 감지했습니다: {0}"), TEXT("Cyclic recipe: {0}"), TEXT("检测到循环配方：{0}"), TEXT("Zyklisches Rezept erkannt: {0}")),
+			Localized(Item->LocalizedName, Item->NameKo, Item->NameEn, Language));
 		return nullptr;
 	}
 
 	TSharedPtr<FSBCProductionNode> Node = MakeShared<FSBCProductionNode>();
 	Node->NodeId = NodeId;
 	Node->ItemId = ItemId;
-	Node->ItemName = Localized(Item->NameKo, Item->NameEn, bKorean);
+	Node->ItemName = Localized(Item->LocalizedName, Item->NameKo, Item->NameEn, Language);
 	Node->RequiredRate = Rate;
 	Node->Unit = Item->Unit;
 	Node->bRawResource = Item->bRawResource;
@@ -408,21 +483,22 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
 	const FSBCRecipeDefinition* Recipe = SelectRecipe(ItemId, NodeId, SelectedRecipes);
 	if (!Recipe)
 	{
-		OutError = bKorean ? FString::Printf(TEXT("%s의 레시피가 없습니다."), *Item->NameKo)
-			: FString::Printf(TEXT("No recipe for %s."), *Item->NameEn);
+		OutError = SBCLocalization::Format(
+			SBCLocalization::String(Language, TEXT("{0}의 제조법이 없습니다."), TEXT("No recipe for {0}."), TEXT("{0} 没有可用配方。"), TEXT("Kein Rezept für {0}.")),
+			Node->ItemName);
 		return nullptr;
 	}
 	const FSBCBuildingDefinition* Building = Data.FindBuilding(Recipe->BuildingId);
 	if (!Building || Recipe->OutputAmount <= 0.0 || Recipe->DurationSeconds <= 0.0)
 	{
-		OutError = bKorean ? TEXT("레시피의 생산시설 데이터가 올바르지 않습니다.") : TEXT("The recipe building data is invalid.");
+		OutError = SBCLocalization::String(Language, TEXT("제조법의 생산시설 데이터가 올바르지 않습니다."), TEXT("The recipe building data is invalid."), TEXT("配方的生产建筑数据无效。"), TEXT("Die Produktionsgebäudedaten des Rezepts sind ungültig."));
 		return nullptr;
 	}
 
 	Node->RecipeId = Recipe->Id;
-	Node->RecipeName = Localized(Recipe->NameKo, Recipe->NameEn, bKorean);
+	Node->RecipeName = Localized(Recipe->LocalizedName, Recipe->NameKo, Recipe->NameEn, Language);
 	Node->BuildingId = Building->Id;
-	Node->BuildingName = Localized(Building->NameKo, Building->NameEn, bKorean);
+	Node->BuildingName = Localized(Building->LocalizedName, Building->NameKo, Building->NameEn, Language);
 	Node->bGenerator = Recipe->Kind == TEXT("generator") || Recipe->Kind == TEXT("geothermal") || Recipe->Kind == TEXT("augmenter");
 	const FSBCMachineSettings Settings = MachineSettings.FindRef(NodeId);
 	Node->PowerShards = Node->bGenerator ? 0 : FMath::Clamp(MachineSettings.Contains(NodeId) ? Settings.PowerShards : DefaultPowerShards, 0, 3);
@@ -437,7 +513,7 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
 	{
 		if (Recipe->SiteLimit > 0 && Node->InstalledBuildingCount > Recipe->SiteLimit)
 		{
-			OutError = bKorean ? TEXT("사용 가능한 간헐천 수를 초과했습니다.") : TEXT("The available geyser limit was exceeded.");
+			OutError = SBCLocalization::String(Language, TEXT("사용 가능한 간헐천 수를 초과했습니다."), TEXT("The available geyser limit was exceeded."), TEXT("已超过可用间歇泉数量。"), TEXT("Die Anzahl verfügbarer Geysire wurde überschritten."));
 			return nullptr;
 		}
 		Node->GenerationMW = Node->InstalledBuildingCount * PerMachineRate;
@@ -459,8 +535,7 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
 		}
 		if (Node->InstalledBuildingCount == 0)
 		{
-			OutError = bKorean ? TEXT("사용 가능한 외계 전력 증폭기 수로 목표를 달성할 수 없습니다.")
-				: TEXT("This target exceeds the available Power Augmenters.");
+			OutError = SBCLocalization::String(Language, TEXT("사용 가능한 외계 전력 증폭기 수로 목표를 달성할 수 없습니다."), TEXT("This target exceeds the available Power Augmenters."), TEXT("可用的外星能源增幅器无法达到该目标。"), TEXT("Dieses Ziel übersteigt die verfügbaren Alien-Energieverstärker."));
 			return nullptr;
 		}
 		Node->ExactBuildingCount = Node->InstalledBuildingCount;
@@ -499,7 +574,7 @@ TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
 			: Rate * Ingredient.Amount / (Recipe->OutputAmount * Boost);
 		const FString ChildId = FString::Printf(TEXT("%s/%d:%s"), *NodeId, Index, *Ingredient.ItemId);
 		TSharedPtr<FSBCProductionNode> Child = BuildNode(Ingredient.ItemId, RequiredRate, ChildId, SelectedRecipes,
-			MachineSettings, DefaultPowerShards, bKorean, ExistingGridMW, NextAncestry, OutError);
+			MachineSettings, DefaultPowerShards, Language, ExistingGridMW, NextAncestry, OutError);
 		if (!Child) return nullptr;
 		Node->Children.Add(MoveTemp(Child));
 	}

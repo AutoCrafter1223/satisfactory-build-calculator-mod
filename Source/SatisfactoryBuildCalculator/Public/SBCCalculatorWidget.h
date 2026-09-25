@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "SBCLocalization.h"
 #include "SBCProductionCalculator.h"
 #include "SBCCalculatorWidget.generated.h"
 
@@ -54,7 +55,7 @@ private:
 	FString SelectedGoalNodeId;
 	double TargetRate = 10.0;
 	int32 DefaultPowerShards = 0;
-	bool bKorean = true;
+	ESBCLanguage Language = ESBCLanguage::English;
 	bool bRecipeStateReady = false;
 	bool bCompactView = false;
 	FSimpleDelegate OnRequestClose;
@@ -78,5 +79,5 @@ private:
 	void ToggleNodeCollapsed(const FString& NodeId);
 	void SelectGoalNode(const FString& NodeId);
 	FLinearColor GetBuildingColor(const TSharedPtr<FSBCProductionNode>& Node) const;
-	FText Text(const TCHAR* Korean, const TCHAR* English) const;
+	FText Text(const TCHAR* Korean, const TCHAR* English, const TCHAR* Chinese = nullptr, const TCHAR* German = nullptr) const;
 };

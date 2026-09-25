@@ -3,8 +3,7 @@
 #include "Configuration/ConfigManager.h"
 #include "Configuration/Properties/ConfigPropertySection.h"
 #include "Engine/GameInstance.h"
-#include "Internationalization/Culture.h"
-#include "Internationalization/Internationalization.h"
+#include "SBCLocalization.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
@@ -39,21 +38,23 @@ namespace
 		}
 	}
 
-	bool IsHotkeyKorean()
-	{
-		return FInternationalization::Get().GetCurrentCulture()->GetTwoLetterISOLanguageName() == TEXT("ko");
-	}
-
 	void ConfigureKeyProperty(
 		UConfigPropertySection* Root,
 		USBCKeyConfigProperty* Property,
 		const TCHAR* PropertyName,
 		const TCHAR* KeyName,
 		const TCHAR* KoreanName,
-		const TCHAR* EnglishName)
+		const TCHAR* EnglishName,
+		const TCHAR* ChineseName,
+		const TCHAR* GermanName)
 	{
-		Property->DisplayName = FText::FromString(FString::Printf(TEXT("%s / %s"), KoreanName, EnglishName));
-		Property->Tooltip = FText::FromString(TEXT("버튼을 누른 뒤 사용할 키를 입력하세요. / Press the button, then press the key to use."));
+		const ESBCLanguage Language = SBCLocalization::GetCurrentLanguage();
+		Property->DisplayName = SBCLocalization::Text(Language, KoreanName, EnglishName, ChineseName, GermanName);
+		Property->Tooltip = SBCLocalization::Text(Language,
+			TEXT("버튼을 누른 뒤 사용할 키를 입력하세요."),
+			TEXT("Press the button, then press the key to use."),
+			TEXT("点击按钮，然后按下要使用的按键。"),
+			TEXT("Klicke auf die Schaltfläche und drücke anschließend die gewünschte Taste."));
 		Property->DefaultValue = KeyName;
 		Property->Value = KeyName;
 		Root->SectionProperties.Add(PropertyName, Property);
@@ -117,7 +118,7 @@ FText USBCKeyConfigEditorWidget::GetKeyButtonText() const
 {
 	if (bCapturing)
 	{
-		return IsHotkeyKorean() ? FText::FromString(TEXT("키를 누르세요")) : FText::FromString(TEXT("Press a key"));
+		return SBCLocalization::Text(SBCLocalization::GetCurrentLanguage(), TEXT("키를 누르세요"), TEXT("Press a key"), TEXT("请按键"), TEXT("Taste drücken"));
 	}
 	if (!Property)
 	{
@@ -152,18 +153,23 @@ FReply USBCKeyConfigEditorWidget::NativeOnPreviewKeyDown(const FGeometry& InGeom
 USBCModConfiguration::USBCModConfiguration()
 {
 	ConfigId = HotkeyConfigId;
-	DisplayName = FText::FromString(TEXT("단축키 / Hotkeys"));
-	Description = FText::FromString(TEXT("빌드 계산기와 건설 목표 단축키를 설정합니다. / Configure calculator and build-goal hotkeys."));
+	const ESBCLanguage Language = SBCLocalization::GetCurrentLanguage();
+	DisplayName = SBCLocalization::Text(Language, TEXT("단축키"), TEXT("Hotkeys"), TEXT("快捷键"), TEXT("Tastenkürzel"));
+	Description = SBCLocalization::Text(Language,
+		TEXT("빌드 계산기와 건설 목표 단축키를 설정합니다."),
+		TEXT("Configure calculator and build-goal hotkeys."),
+		TEXT("设置建造计算器和建造目标快捷键。"),
+		TEXT("Tastenkürzel für Rechner und Bauziele festlegen."));
 	RootSection = CreateDefaultSubobject<UConfigPropertySection>(TEXT("RootSection"));
 	RootSection->DisplayName = DisplayName;
 	USBCKeyConfigProperty* Manual = CreateDefaultSubobject<USBCKeyConfigProperty>(TEXT("ManualCompletionKey"));
 	USBCKeyConfigProperty* AddAimed = CreateDefaultSubobject<USBCKeyConfigProperty>(TEXT("AddAimedBuildingKey"));
 	USBCKeyConfigProperty* ToggleGoals = CreateDefaultSubobject<USBCKeyConfigProperty>(TEXT("ToggleGoalHUDKey"));
 	USBCKeyConfigProperty* ToggleCalculator = CreateDefaultSubobject<USBCKeyConfigProperty>(TEXT("ToggleCalculatorKey"));
-	ConfigureKeyProperty(RootSection, Manual, TEXT("ManualCompletionKey"), TEXT("F5"), TEXT("수동 완료/취소"), TEXT("Complete/undo goal"));
-	ConfigureKeyProperty(RootSection, AddAimed, TEXT("AddAimedBuildingKey"), TEXT("F6"), TEXT("바라보는 시설 추가"), TEXT("Add aimed building"));
-	ConfigureKeyProperty(RootSection, ToggleGoals, TEXT("ToggleGoalHUDKey"), TEXT("F7"), TEXT("건설 목표 창"), TEXT("Toggle goal HUD"));
-	ConfigureKeyProperty(RootSection, ToggleCalculator, TEXT("ToggleCalculatorKey"), TEXT("F8"), TEXT("빌드 계산기 창"), TEXT("Toggle calculator"));
+	ConfigureKeyProperty(RootSection, Manual, TEXT("ManualCompletionKey"), TEXT("F5"), TEXT("수동 완료/취소"), TEXT("Complete/undo goal"), TEXT("完成/撤销目标"), TEXT("Ziel fertig/zurück"));
+	ConfigureKeyProperty(RootSection, AddAimed, TEXT("AddAimedBuildingKey"), TEXT("F6"), TEXT("바라보는 시설 추가"), TEXT("Add aimed building"), TEXT("添加瞄准的建筑"), TEXT("Anvisiertes Gebäude hinzufügen"));
+	ConfigureKeyProperty(RootSection, ToggleGoals, TEXT("ToggleGoalHUDKey"), TEXT("F7"), TEXT("건설 목표 창"), TEXT("Toggle goal HUD"), TEXT("建造目标窗口"), TEXT("Bauzielanzeige"));
+	ConfigureKeyProperty(RootSection, ToggleCalculator, TEXT("ToggleCalculatorKey"), TEXT("F8"), TEXT("빌드 계산기 창"), TEXT("Toggle calculator"), TEXT("建造计算器窗口"), TEXT("Baurechner"));
 }
 
 FKey SBCHotkeys::Get(UObject* WorldContext, ESBCHotkeyAction Action)

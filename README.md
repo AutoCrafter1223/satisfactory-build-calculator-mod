@@ -28,7 +28,7 @@ All four function-key shortcuts can be changed from the mod's in-game configurat
 - Summarizes machine count, raw resources, power consumption, and generation.
 - Selecting a card and pressing the goal button adds only that card and its descendants to construction goals.
 
-The HUD automatically uses Korean when the game culture is Korean. Other cultures use English.
+The calculator UI supports Korean, English, Simplified Chinese, and German, selected from the current game culture. Item, recipe, and building names use Satisfactory's own localized display names; unsupported UI cultures fall back to English.
 Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboard selection is visibly highlighted.
 
 ## Tracking rules
@@ -43,4 +43,4 @@ Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboar
 
 ## Development status
 
-The native runtime, save/replication layer, multiplayer remote calls, automatic tracker, compact HUD, and production calculator compile for `FactoryGameSteam` Shipping. Input is temporarily handled by fixed prototype keys; player-rebindable Enhanced Input assets are planned before public release.
+The native runtime, save/replication layer, multiplayer remote calls, automatic tracker, compact HUD, configurable hotkeys, and production calculator compile for `FactoryGameSteam` Shipping.
