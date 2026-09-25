@@ -5,6 +5,7 @@
 #include "FGCharacterPlayer.h"
 #include "FGPlayerController.h"
 #include "InputCoreTypes.h"
+#include "SBCCalculatorWidget.h"
 #include "SBCGoalHUDWidget.h"
 #include "SBCGoalSubsystem.h"
 #include "SBCRemoteCallObject.h"
@@ -43,6 +44,18 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 			GoalWidget->AddToViewport(50);
 		}
 	}
+	if (!IsValid(CalculatorWidget))
+	{
+		CalculatorWidget = CreateWidget<USBCCalculatorWidget>(PlayerController, USBCCalculatorWidget::StaticClass());
+		if (CalculatorWidget)
+		{
+			CalculatorWidget->SetAnchorsInViewport(FAnchors(0.5f, 0.5f));
+			CalculatorWidget->SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
+			CalculatorWidget->SetPositionInViewport(FVector2D::ZeroVector, false);
+			CalculatorWidget->AddToViewport(100);
+			CalculatorWidget->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
 	return IsValid(GoalWidget);
 }
 
@@ -55,6 +68,7 @@ void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)
 	}
 
 	if (PlayerController->WasInputKeyJustPressed(EKeys::F8)) ToggleWidget();
+	if (PlayerController->WasInputKeyJustPressed(EKeys::F6)) ToggleCalculatorWidget();
 	if (PlayerController->WasInputKeyJustPressed(EKeys::F7)) AddLookedAtGoal();
 	if (PlayerController->WasInputKeyJustPressed(EKeys::Up)) ChangeSelection(-1);
 	if (PlayerController->WasInputKeyJustPressed(EKeys::Down)) ChangeSelection(1);
@@ -77,6 +91,10 @@ void ASBCPlayerGoalHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (IsValid(GoalWidget))
 	{
 		GoalWidget->RemoveFromParent();
+	}
+	if (IsValid(CalculatorWidget))
+	{
+		CalculatorWidget->RemoveFromParent();
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -107,6 +125,26 @@ void ASBCPlayerGoalHUD::ToggleWidget()
 	if (GoalWidget)
 	{
 		GoalWidget->SetVisibility(GoalWidget->IsVisible() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	}
+}
+
+void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
+{
+	if (!CalculatorWidget || !PlayerController) return;
+	const bool bOpen = CalculatorWidget->GetVisibility() == ESlateVisibility::Collapsed;
+	CalculatorWidget->SetVisibility(bOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	PlayerController->SetShowMouseCursor(bOpen);
+	if (bOpen)
+	{
+		FInputModeGameAndUI InputMode;
+		InputMode.SetWidgetToFocus(CalculatorWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PlayerController->SetInputMode(InputMode);
+		CalculatorWidget->FocusSearchBox();
+	}
+	else
+	{
+		PlayerController->SetInputMode(FInputModeGameOnly());
 	}
 }
 

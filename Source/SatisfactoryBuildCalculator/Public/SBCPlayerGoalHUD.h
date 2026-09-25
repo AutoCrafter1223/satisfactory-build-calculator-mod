@@ -8,6 +8,7 @@ class AFGBuildable;
 class AFGCharacterPlayer;
 class AFGPlayerController;
 class USBCGoalHUDWidget;
+class USBCCalculatorWidget;
 class USBCRemoteCallObject;
 
 UCLASS(NotBlueprintable, Transient)
@@ -32,6 +33,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<USBCGoalHUDWidget> GoalWidget = nullptr;
 
+	UPROPERTY(Transient)
+	TObjectPtr<USBCCalculatorWidget> CalculatorWidget = nullptr;
+
 	int32 SelectedGoalIndex = 0;
 	float RefreshAccumulator = 0.0f;
 
@@ -39,6 +43,7 @@ private:
 	USBCRemoteCallObject* GetRemoteCallObject() const;
 	AFGBuildable* GetLookedAtBuildable() const;
 	void ToggleWidget();
+	void ToggleCalculatorWidget();
 	void AddLookedAtGoal();
 	void ChangeSelection(int32 Delta);
 	void ChangeTargetCount(int32 Delta);
