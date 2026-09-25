@@ -366,7 +366,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
 						[
 							SNew(SButton)
-							.Text(Text(TEXT("공정도 초기 위치"), TEXT("Reset view"), TEXT("重置视图"), TEXT("Ansicht zurücksetzen")))
+							.Text_Lambda([this]() { return Text(TEXT("공정도 초기 위치"), TEXT("Reset view"), TEXT("重置视图"), TEXT("Ansicht zurücksetzen")); })
 							.OnClicked_Lambda([this]()
 							{
 								if (ResultGraph.IsValid()) ResultGraph->ResetView();
@@ -376,7 +376,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
 						[
 							SNew(SButton)
-							.Text(Text(TEXT("선택 카드 보기"), TEXT("Focus selected"), TEXT("定位所选卡片"), TEXT("Auswahl anzeigen")))
+							.Text_Lambda([this]() { return Text(TEXT("선택 카드 보기"), TEXT("Focus selected"), TEXT("定位所选卡片"), TEXT("Auswahl anzeigen")); })
 							.OnClicked_Lambda([this]()
 							{
 								if (ResultGraph.IsValid()) ResultGraph->FocusCard(SelectedGoalNodeId);
@@ -386,7 +386,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
 						[
 							SNew(SButton)
-							.Text(Text(TEXT("새로고침"), TEXT("Refresh"), TEXT("刷新"), TEXT("Aktualisieren")))
+							.Text_Lambda([this]() { return Text(TEXT("새로고침"), TEXT("Refresh"), TEXT("刷新"), TEXT("Aktualisieren")); })
 							.OnClicked_Lambda([this]()
 							{
 								RefreshGameState();
@@ -421,7 +421,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
 							[
 								SAssignNew(SearchBox, SEditableTextBox)
-								.HintText(Text(TEXT("제품 또는 발전기 검색"), TEXT("Search products or generators"), TEXT("搜索产品或发电机"), TEXT("Produkt oder Generator suchen")))
+								.HintText_Lambda([this]() { return Text(TEXT("제품 또는 발전기 검색"), TEXT("Search products or generators"), TEXT("搜索产品或发电机"), TEXT("Produkt oder Generator suchen")); })
 								.OnTextChanged_Lambda([this](const FText& NewText)
 								{
 									SearchText = NewText.ToString();
@@ -451,7 +451,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 10.0f, 0.0f)
 								[
 									SNew(STextBlock)
-									.Text(Text(TEXT("목표 생산량"), TEXT("Target rate"), TEXT("目标产量"), TEXT("Zielrate")))
+									.Text_Lambda([this]() { return Text(TEXT("목표 생산량"), TEXT("Target rate"), TEXT("目标产量"), TEXT("Zielrate")); })
 									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 12))
 								]
 								+ SHorizontalBox::Slot().FillWidth(1.0f)
@@ -468,7 +468,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 								+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10.0f, 0.0f, 5.0f, 0.0f)
 								[
 									SNew(STextBlock)
-									.Text(Text(TEXT("전체 동력핵"), TEXT("Global shards"), TEXT("全局能量碎片"), TEXT("Globale Energiesplitter")))
+									.Text_Lambda([this]() { return Text(TEXT("전체 동력핵"), TEXT("Global shards"), TEXT("全局能量碎片"), TEXT("Globale Energiesplitter")); })
 									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
 								]
 								+ SHorizontalBox::Slot().AutoWidth().Padding(1.0f)
@@ -490,7 +490,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 								+ SHorizontalBox::Slot().AutoWidth().Padding(10.0f, 0.0f, 0.0f, 0.0f)
 								[
 									SNew(SButton)
-									.Text(Text(TEXT("계산"), TEXT("Calculate"), TEXT("计算"), TEXT("Berechnen")))
+									.Text_Lambda([this]() { return Text(TEXT("계산"), TEXT("Calculate"), TEXT("计算"), TEXT("Berechnen")); })
 									.OnClicked_Lambda([this]()
 									{
 										CalculateSelected();
@@ -500,7 +500,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 								+ SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
 								[
 									SNew(SButton)
-									.Text(Text(TEXT("선택 공정 목표 추가"), TEXT("Add selected branch"), TEXT("添加所选分支目标"), TEXT("Ausgewählten Zweig hinzufügen")))
+									.Text_Lambda([this]() { return Text(TEXT("선택 공정 목표 추가"), TEXT("Add selected branch"), TEXT("添加所选分支目标"), TEXT("Ausgewählten Zweig hinzufügen")); })
 									.OnClicked_Lambda([this]()
 									{
 									OnRequestAddGoals.ExecuteIfBound();
@@ -598,6 +598,7 @@ void USBCCalculatorWidget::SetPanelSize(const FVector2D& NewSize)
 
 void USBCCalculatorWidget::RefreshGameState()
 {
+	Language = SBCLocalization::GetCurrentLanguage();
 	UnlockedRecipeIds.Reset();
 	UnlockedItemIds.Reset();
 	UnlockedBuildingIds.Reset();
