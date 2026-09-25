@@ -195,22 +195,10 @@ private:
 	{
 		const float Margin = 80.0f;
 		const FVector2D ScaledSize = GraphSize * Zoom;
-		if (ScaledSize.X <= LastViewportSize.X)
-		{
-			PanOffset.X = (LastViewportSize.X - ScaledSize.X) * 0.5f;
-		}
-		else
-		{
-			PanOffset.X = FMath::Clamp(PanOffset.X, LastViewportSize.X - ScaledSize.X - Margin, Margin);
-		}
-		if (ScaledSize.Y <= LastViewportSize.Y)
-		{
-			PanOffset.Y = (LastViewportSize.Y - ScaledSize.Y) * 0.5f;
-		}
-		else
-		{
-			PanOffset.Y = FMath::Clamp(PanOffset.Y, LastViewportSize.Y - ScaledSize.Y - Margin, Margin);
-		}
+		// Allow small and large graphs to pan on both axes. Keep only a small
+		// portion visible so a graph cannot be lost completely off-screen.
+		PanOffset.X = FMath::Clamp(PanOffset.X, Margin - ScaledSize.X, LastViewportSize.X - Margin);
+		PanOffset.Y = FMath::Clamp(PanOffset.Y, Margin - ScaledSize.Y, LastViewportSize.Y - Margin);
 	}
 };
 
