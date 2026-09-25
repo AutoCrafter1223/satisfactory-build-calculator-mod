@@ -1,6 +1,7 @@
 #include "SBCPlayerGoalHUD.h"
 
 #include "Buildables/FGBuildable.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/InputComponent.h"
 #include "Engine/World.h"
 #include "FGCharacterPlayer.h"
@@ -66,11 +67,7 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 			CalculatorWidget->AddToViewport(100);
 			CalculatorWidget->SetAnchorsInViewport(FAnchors(0.0f, 0.0f));
 			CalculatorWidget->SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
-			int32 ViewportWidth = 0;
-			int32 ViewportHeight = 0;
-			PlayerController->GetViewportSize(ViewportWidth, ViewportHeight);
-			CalculatorWidget->SetPositionInViewport(
-				FVector2D(ViewportWidth * 0.5f, ViewportHeight * 0.5f), true);
+			UpdateCalculatorLayout();
 			CalculatorWidget->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
@@ -94,6 +91,10 @@ void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)
 	if (PlayerController->WasInputKeyJustPressed(EKeys::Enter)) ToggleManualCompletion();
 	if (PlayerController->WasInputKeyJustPressed(EKeys::Delete)) RemoveSelectedGoal();
 	if (PlayerController->WasInputKeyJustPressed(EKeys::L)) LinkLookedAtBuildable();
+	if (CalculatorWidget && CalculatorWidget->GetVisibility() == ESlateVisibility::Visible)
+	{
+		UpdateCalculatorLayout();
+	}
 
 	RefreshAccumulator += DeltaSeconds;
 	if (RefreshAccumulator >= 0.25f)
@@ -151,11 +152,7 @@ void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
 	const bool bOpen = CalculatorWidget->GetVisibility() == ESlateVisibility::Collapsed;
 	if (bOpen)
 	{
-		int32 ViewportWidth = 0;
-		int32 ViewportHeight = 0;
-		PlayerController->GetViewportSize(ViewportWidth, ViewportHeight);
-		CalculatorWidget->SetPositionInViewport(
-			FVector2D(ViewportWidth * 0.5f, ViewportHeight * 0.5f), true);
+		UpdateCalculatorLayout();
 	}
 	CalculatorWidget->SetVisibility(bOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	PlayerController->SetShowMouseCursor(bOpen);
@@ -171,6 +168,25 @@ void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
 	{
 		PlayerController->SetInputMode(FInputModeGameOnly());
 	}
+}
+
+void ASBCPlayerGoalHUD::UpdateCalculatorLayout()
+{
+	if (!CalculatorWidget || !PlayerController) return;
+	int32 ViewportWidth = 0;
+	int32 ViewportHeight = 0;
+	PlayerController->GetViewportSize(ViewportWidth, ViewportHeight);
+	if (ViewportWidth <= 0 || ViewportHeight <= 0) return;
+
+	const float ViewportScale = FMath::Max(0.1f, UWidgetLayoutLibrary::GetViewportScale(this));
+	const float LogicalWidth = ViewportWidth / ViewportScale;
+	const float LogicalHeight = ViewportHeight / ViewportScale;
+	const FVector2D ResponsiveSize(
+		FMath::Clamp(LogicalWidth * 0.88f, 700.0f, 1500.0f),
+		FMath::Clamp(LogicalHeight * 0.82f, 460.0f, 900.0f));
+	CalculatorWidget->SetPanelSize(ResponsiveSize);
+	CalculatorWidget->SetPositionInViewport(
+		FVector2D(ViewportWidth * 0.5f, ViewportHeight * 0.5f), true);
 }
 
 void ASBCPlayerGoalHUD::AddLookedAtGoal()

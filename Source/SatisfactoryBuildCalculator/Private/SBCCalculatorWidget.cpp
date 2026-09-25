@@ -25,13 +25,13 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 	bKorean = FInternationalization::Get().GetCurrentCulture()->GetTwoLetterISOLanguageName() == TEXT("ko");
 
 	TSharedRef<SWidget> Result =
-		SNew(SBox)
-		.WidthOverride(800.0f)
-		.HeightOverride(540.0f)
+		SAssignNew(RootSizeBox, SBox)
+		.WidthOverride(PanelSize.X)
+		.HeightOverride(PanelSize.Y)
 		[
 			SNew(SBorder)
 			.Padding(16.0f)
-			.BorderBackgroundColor(FLinearColor(0.025f, 0.055f, 0.07f, 0.96f))
+			.BorderBackgroundColor(FLinearColor(0.025f, 0.055f, 0.07f, 0.68f))
 			[
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
@@ -59,7 +59,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 					[
 						SNew(SBorder)
 						.Padding(10.0f)
-						.BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.10f, 0.82f))
+						.BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.10f, 0.66f))
 						[
 							SNew(SVerticalBox)
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 8.0f)
@@ -86,7 +86,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 					[
 						SNew(SBorder)
 						.Padding(12.0f)
-						.BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.10f, 0.72f))
+						.BorderBackgroundColor(FLinearColor(0.04f, 0.08f, 0.10f, 0.60f))
 						[
 							SNew(SVerticalBox)
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
@@ -148,6 +148,20 @@ void USBCCalculatorWidget::FocusSearchBox()
 	if (SearchBox.IsValid())
 	{
 		FSlateApplication::Get().SetKeyboardFocus(SearchBox, EFocusCause::SetDirectly);
+	}
+}
+
+void USBCCalculatorWidget::SetPanelSize(const FVector2D& NewSize)
+{
+	if (PanelSize.Equals(NewSize, 0.5f))
+	{
+		return;
+	}
+	PanelSize = NewSize;
+	if (RootSizeBox.IsValid())
+	{
+		RootSizeBox->SetWidthOverride(PanelSize.X);
+		RootSizeBox->SetHeightOverride(PanelSize.Y);
 	}
 }
 
@@ -260,7 +274,7 @@ void USBCCalculatorWidget::AddResultNode(const TSharedPtr<FSBCProductionNode>& N
 	[
 		SNew(SBorder)
 		.Padding(FMargin(9.0f, 6.0f))
-		.BorderBackgroundColor(Depth == 0 ? FLinearColor(0.12f, 0.18f, 0.20f, 0.92f) : FLinearColor(0.055f, 0.09f, 0.11f, 0.74f))
+		.BorderBackgroundColor(Depth == 0 ? FLinearColor(0.12f, 0.18f, 0.20f, 0.78f) : FLinearColor(0.055f, 0.09f, 0.11f, 0.62f))
 		[
 			SNew(SVerticalBox)
 			+ SVerticalBox::Slot().AutoHeight()

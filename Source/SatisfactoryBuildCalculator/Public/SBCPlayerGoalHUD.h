@@ -45,6 +45,7 @@ private:
 	AFGBuildable* GetLookedAtBuildable() const;
 	void ToggleWidget();
 	void ToggleCalculatorWidget();
+	void UpdateCalculatorLayout();
 	void AddLookedAtGoal();
 	void ChangeSelection(int32 Delta);
 	void ChangeTargetCount(int32 Delta);

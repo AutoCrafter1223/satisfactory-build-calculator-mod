@@ -14,6 +14,7 @@ class SATISFACTORYBUILDCALCULATOR_API USBCCalculatorWidget final : public UUserW
 
 public:
 	void FocusSearchBox();
+	void SetPanelSize(const FVector2D& NewSize);
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -21,7 +22,9 @@ protected:
 private:
 	TSharedPtr<SVerticalBox> ProductListBox;
 	TSharedPtr<SVerticalBox> ResultBox;
+	TSharedPtr<class SBox> RootSizeBox;
 	TSharedPtr<class SEditableTextBox> SearchBox;
+	FVector2D PanelSize = FVector2D(1000.0f, 650.0f);
 	FString SearchText;
 	FString SelectedItemId;
 	double TargetRate = 10.0;
