@@ -41,7 +41,7 @@ TSharedRef<SWidget> USBCGoalHUDWidget::RebuildWidget()
 		[
 			SNew(SBorder)
 			.Padding(FMargin(12.0f, 10.0f))
-			.BorderBackgroundColor(FLinearColor(0.025f, 0.055f, 0.07f, 0.94f))
+			.BorderBackgroundColor(FLinearColor(0.025f, 0.055f, 0.07f, 0.68f))
 			[
 				SAssignNew(ContentBox, SVerticalBox)
 			]
@@ -147,7 +147,7 @@ void USBCGoalHUDWidget::RefreshGoals()
 		[
 			SNew(SBorder)
 			.Padding(FMargin(8.0f, 6.0f))
-			.BorderBackgroundColor(bSelected ? FLinearColor(0.10f, 0.18f, 0.20f, 1.0f) : FLinearColor(0.05f, 0.09f, 0.11f, 0.92f))
+			.BorderBackgroundColor(bSelected ? FLinearColor(0.10f, 0.18f, 0.20f, 0.82f) : FLinearColor(0.05f, 0.09f, 0.11f, 0.70f))
 			[
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().FillWidth(1.0f)
