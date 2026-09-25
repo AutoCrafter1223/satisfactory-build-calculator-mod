@@ -197,7 +197,7 @@ void USBCGoalHUDWidget::RefreshGoals()
 		GoalListBox->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
 		[
 			SAssignNew(GoalCard, SBorder)
-			.Padding(bSelected ? FMargin(3.0f, 0.0f, 0.0f, 0.0f) : FMargin(0.0f))
+			.Padding(bSelected ? FMargin(2.0f) : FMargin(0.0f))
 			.BorderBackgroundColor(bSelected ? FLinearColor(1.0f, 0.55f, 0.08f, 0.95f) : FLinearColor::Transparent)
 			[
 				SNew(SBorder)

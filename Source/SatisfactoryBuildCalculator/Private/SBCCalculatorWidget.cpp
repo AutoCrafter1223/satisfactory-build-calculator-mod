@@ -216,12 +216,39 @@ private:
 
 namespace
 {
+	bool IsGeneratorRecipe(const FSBCRecipeDefinition& Recipe)
+	{
+		return Recipe.Kind == TEXT("generator") || Recipe.Kind == TEXT("geothermal") || Recipe.Kind == TEXT("augmenter");
+	}
+
+	bool IsUnpackageRecipe(const FSBCRecipeDefinition& Recipe)
+	{
+		return Recipe.Id.StartsWith(TEXT("Recipe_Unpackage"), ESearchCase::IgnoreCase);
+	}
+
+	FString GeneratorRecipeLabel(const FSBCProductionData& Data, const FSBCRecipeDefinition& Recipe)
+	{
+		if (!Recipe.Ingredients.IsEmpty())
+		{
+			if (const FSBCItemDefinition* Fuel = Data.FindItem(Recipe.Ingredients[0].ItemId))
+			{
+				return Fuel->LocalizedName.IsEmpty() ? Fuel->NameEn : Fuel->LocalizedName;
+			}
+		}
+		const FString Name = Recipe.LocalizedName.IsEmpty() ? Recipe.NameEn : Recipe.LocalizedName;
+		FString Prefix;
+		FString Suffix;
+		return Name.Split(TEXT(" · "), &Prefix, &Suffix, ESearchCase::CaseSensitive, ESearchDir::FromEnd) ? Suffix : Name;
+	}
+
 	void GatherProductionSummary(
 		const TSharedPtr<FSBCProductionNode>& Node,
 		TMap<FString, TPair<double, FString>>& RawResources,
+		TMap<FString, TPair<double, FString>>& RequiredProducts,
 		int32& Machines,
 		double& ConsumptionMW,
-		double& GenerationMW)
+		double& GenerationMW,
+		bool bRoot = true)
 	{
 		if (!Node) return;
 		if (Node->bRawResource)
@@ -232,13 +259,19 @@ namespace
 		}
 		else
 		{
+			if (!bRoot)
+			{
+				TPair<double, FString>& Entry = RequiredProducts.FindOrAdd(Node->ItemName);
+				Entry.Key += Node->RequiredRate;
+				Entry.Value = Node->Unit;
+			}
 			Machines += Node->InstalledBuildingCount;
 			ConsumptionMW += Node->PowerMW;
 			GenerationMW += Node->GenerationMW;
 		}
 		for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
 		{
-			GatherProductionSummary(Child, RawResources, Machines, ConsumptionMW, GenerationMW);
+			GatherProductionSummary(Child, RawResources, RequiredProducts, Machines, ConsumptionMW, GenerationMW, false);
 		}
 	}
 
@@ -300,7 +333,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 					+ SHorizontalBox::Slot().FillWidth(1.0f)
 					[
 						SNew(STextBlock)
-						.Text(Text(TEXT("세티스팩토리 빌드 계산기"), TEXT("Satisfactory Build Calculator"), TEXT("幸福工厂建造计算器"), TEXT("Satisfactory-Baurechner")))
+						.Text(FText::FromString(TEXT("Satisfactory Build Calculator")))
 						.ColorAndOpacity(FLinearColor(1.0f, 0.62f, 0.14f))
 						.Font(FCoreStyle::GetDefaultFontStyle("Bold", 22))
 					]
@@ -641,10 +674,23 @@ bool USBCCalculatorWidget::IsProductUnlocked(const FString& ItemId) const
 	}
 	for (const FString& RecipeId : *Recipes)
 	{
-		if (const FSBCRecipeDefinition* Recipe = Data->FindRecipe(RecipeId); Recipe && IsRecipeUnlocked(*Recipe))
+		if (const FSBCRecipeDefinition* Recipe = Data->FindRecipe(RecipeId); Recipe && !IsUnpackageRecipe(*Recipe) && IsRecipeUnlocked(*Recipe))
 		{
 			return true;
 		}
+	}
+	return false;
+}
+
+bool USBCCalculatorWidget::IsGeneratorBuildingUnlocked(const FString& BuildingId) const
+{
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	if (!Data) return false;
+	for (const TPair<FString, FSBCRecipeDefinition>& Pair : Data->GetRecipes())
+	{
+		const FSBCRecipeDefinition& Recipe = Pair.Value;
+		if (Recipe.BuildingId == BuildingId && IsGeneratorRecipe(Recipe) && IsRecipeUnlocked(Recipe)) return true;
 	}
 	return false;
 }
@@ -675,45 +721,67 @@ void USBCCalculatorWidget::RefreshProductList()
 	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
 	if (!Data || !Data->IsLoaded()) return;
 
-	TArray<const FSBCItemDefinition*> Matches;
+	struct FProductListEntry
+	{
+		FString Id;
+		FString Name;
+		bool bGenerator = false;
+		bool bUnlocked = false;
+	};
+	TArray<FProductListEntry> Matches;
 	for (const TPair<FString, FSBCItemDefinition>& Pair : Data->GetItems())
 	{
 		const FSBCItemDefinition& Item = Pair.Value;
+		if (Item.Id == TEXT("Electricity_MW")) continue;
 		if (!Data->FindRecipesForItem(Item.Id)) continue;
 		const FString Name = Item.LocalizedName.IsEmpty() ? Item.NameEn : Item.LocalizedName;
 		if (SearchText.IsEmpty() || Name.Contains(SearchText, ESearchCase::IgnoreCase))
 		{
-			Matches.Add(&Item);
+			Matches.Add({Item.Id, Name, false, IsProductUnlocked(Item.Id)});
 		}
 	}
-	Matches.Sort([](const FSBCItemDefinition& A, const FSBCItemDefinition& B)
+	TSet<FString> AddedGeneratorBuildings;
+	for (const TPair<FString, FSBCRecipeDefinition>& Pair : Data->GetRecipes())
 	{
-		return A.LocalizedName < B.LocalizedName;
+		const FSBCRecipeDefinition& Recipe = Pair.Value;
+		if (!IsGeneratorRecipe(Recipe) || AddedGeneratorBuildings.Contains(Recipe.BuildingId)) continue;
+		const FSBCBuildingDefinition* Building = Data->FindBuilding(Recipe.BuildingId);
+		if (!Building) continue;
+		AddedGeneratorBuildings.Add(Recipe.BuildingId);
+		const FString Name = Building->LocalizedName.IsEmpty() ? Building->NameEn : Building->LocalizedName;
+		if (SearchText.IsEmpty() || Name.Contains(SearchText, ESearchCase::IgnoreCase))
+		{
+			Matches.Add({Recipe.BuildingId, Name, true, IsGeneratorBuildingUnlocked(Recipe.BuildingId)});
+		}
+	}
+	Matches.Sort([](const FProductListEntry& A, const FProductListEntry& B)
+	{
+		return A.Name < B.Name;
 	});
 
-	for (const FSBCItemDefinition* Item : Matches)
+	for (const FProductListEntry& Entry : Matches)
 	{
-		const FString ItemId = Item->Id;
-		const bool bUnlocked = IsProductUnlocked(ItemId);
-		const FString DisplayName = Item->LocalizedName.IsEmpty() ? Item->NameEn : Item->LocalizedName;
 		const FString Locked = SBCLocalization::String(Language, TEXT("잠김"), TEXT("Locked"), TEXT("未解锁"), TEXT("Gesperrt"));
-		const FText Name = FText::FromString(bUnlocked
-			? DisplayName
-			: FString::Printf(TEXT("%s  [%s]"), *DisplayName, *Locked));
+		const FText Name = FText::FromString(Entry.bUnlocked
+			? Entry.Name
+			: FString::Printf(TEXT("%s  [%s]"), *Entry.Name, *Locked));
 		ProductListBox->AddSlot().AutoHeight().Padding(0.0f, 1.0f)
 		[
 			SNew(SButton)
-			.IsEnabled(bUnlocked)
+			.IsEnabled(Entry.bUnlocked)
 			.ContentPadding(FMargin(8.0f, 5.0f))
-			.OnClicked_Lambda([this, ItemId]()
+			.OnClicked_Lambda([this, Entry]()
 			{
-				SelectProduct(ItemId);
+				if (Entry.bGenerator) SelectGenerator(Entry.Id);
+				else SelectProduct(Entry.Id);
 				return FReply::Handled();
 			})
 			[
 				SNew(STextBlock)
 				.Text(Name)
-				.Font(FCoreStyle::GetDefaultFontStyle(SelectedItemId == ItemId ? "Bold" : "Regular", 11))
+				.Font(FCoreStyle::GetDefaultFontStyle(
+					(Entry.bGenerator ? SelectedGeneratorBuildingId == Entry.Id : SelectedGeneratorBuildingId.IsEmpty() && SelectedItemId == Entry.Id)
+						? "Bold" : "Regular", 11))
 			]
 		];
 	}
@@ -723,7 +791,42 @@ void USBCCalculatorWidget::SelectProduct(const FString& ItemId)
 {
 	if (!IsProductUnlocked(ItemId)) return;
 	SelectedItemId = ItemId;
+	SelectedGeneratorBuildingId.Reset();
 	SelectedRecipes.Reset();
+	MachineSettings.Reset();
+	CollapsedNodeIds.Reset();
+	SelectedGoalNodeId = TEXT("root");
+	if (ResultGraph.IsValid()) ResultGraph->ResetView();
+	RefreshProductList();
+	CalculateSelected();
+}
+
+void USBCCalculatorWidget::SelectGenerator(const FString& BuildingId)
+{
+	if (!IsGeneratorBuildingUnlocked(BuildingId)) return;
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	if (!Data) return;
+
+	TArray<const FSBCRecipeDefinition*> Candidates;
+	for (const TPair<FString, FSBCRecipeDefinition>& Pair : Data->GetRecipes())
+	{
+		if (Pair.Value.BuildingId == BuildingId && IsGeneratorRecipe(Pair.Value) && IsRecipeUnlocked(Pair.Value))
+		{
+			Candidates.Add(&Pair.Value);
+		}
+	}
+	Candidates.Sort([](const FSBCRecipeDefinition& A, const FSBCRecipeDefinition& B)
+	{
+		if (A.bDefault != B.bDefault) return A.bDefault;
+		return A.LocalizedName < B.LocalizedName;
+	});
+	if (Candidates.IsEmpty()) return;
+
+	SelectedItemId = TEXT("Electricity_MW");
+	SelectedGeneratorBuildingId = BuildingId;
+	SelectedRecipes.Reset();
+	SelectedRecipes.Add(TEXT("root"), Candidates[0]->Id);
 	MachineSettings.Reset();
 	CollapsedNodeIds.Reset();
 	SelectedGoalNodeId = TEXT("root");
@@ -795,10 +898,11 @@ void USBCCalculatorWidget::RefreshSummary(const TSharedPtr<FSBCProductionNode>& 
 	if (!SummaryBox.IsValid()) return;
 	SummaryBox->ClearChildren();
 	TMap<FString, TPair<double, FString>> RawResources;
+	TMap<FString, TPair<double, FString>> RequiredProducts;
 	int32 Machines = 0;
 	double ConsumptionMW = 0.0;
 	double GenerationMW = 0.0;
-	GatherProductionSummary(Root, RawResources, Machines, ConsumptionMW, GenerationMW);
+	GatherProductionSummary(Root, RawResources, RequiredProducts, Machines, ConsumptionMW, GenerationMW);
 
 	SummaryBox->AddSlot().AutoHeight()
 	[
@@ -832,6 +936,25 @@ void USBCCalculatorWidget::RefreshSummary(const TSharedPtr<FSBCProductionNode>& 
 			.AutoWrapText(true)
 		];
 	}
+
+	if (!RequiredProducts.IsEmpty())
+	{
+		TArray<FString> Parts;
+		for (const TPair<FString, TPair<double, FString>>& Pair : RequiredProducts)
+		{
+			const FString Unit = Pair.Value.Value == TEXT("m3") ? TEXT("m³/min") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("items/min"), TEXT("个/min"), TEXT("Stk./min"));
+			Parts.Add(FString::Printf(TEXT("%s %.2f %s"), *Pair.Key, Pair.Value.Key, *Unit));
+		}
+		Parts.Sort();
+		SummaryBox->AddSlot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString(SBCLocalization::String(Language, TEXT("필요 제품: "), TEXT("Required products: "), TEXT("所需产品："), TEXT("Benötigte Produkte: ")) + FString::Join(Parts, TEXT("  ·  "))))
+			.ColorAndOpacity(FLinearColor(0.72f, 0.82f, 0.84f))
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+			.AutoWrapText(true)
+		];
+	}
 }
 
 TSharedRef<SWidget> USBCCalculatorWidget::BuildRecipeMenu(FString NodeId, FString ItemId)
@@ -847,9 +970,13 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildRecipeMenu(FString NodeId, FStrin
 	for (const FString& RecipeId : *CandidateIds)
 	{
 		const FSBCRecipeDefinition* Recipe = Data->FindRecipe(RecipeId);
-		if (!Recipe) continue;
+		if (!Recipe || IsUnpackageRecipe(*Recipe)) continue;
+		const TSharedPtr<FSBCProductionNode> CurrentNode = FindProductionNode(LastCalculatedRoot, NodeId);
+		if (CurrentNode && CurrentNode->bGenerator && Recipe->BuildingId != CurrentNode->BuildingId) continue;
 		const bool bUnlocked = IsRecipeUnlocked(*Recipe);
-		const FString Label = Recipe->LocalizedName.IsEmpty() ? Recipe->NameEn : Recipe->LocalizedName;
+		const FString Label = IsGeneratorRecipe(*Recipe)
+			? GeneratorRecipeLabel(*Data, *Recipe)
+			: (Recipe->LocalizedName.IsEmpty() ? Recipe->NameEn : Recipe->LocalizedName);
 		const FString Locked = SBCLocalization::String(Language, TEXT("잠김"), TEXT("Locked"), TEXT("未解锁"), TEXT("Gesperrt"));
 		Menu->AddSlot().AutoHeight().Padding(2.0f)
 		[
@@ -1029,6 +1156,20 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
 	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
 	const TArray<FString>* CandidateRecipes = Data ? Data->FindRecipesForItem(Node->ItemId) : nullptr;
+	int32 CompatibleRecipeCount = 0;
+	if (CandidateRecipes && Data)
+	{
+		for (const FString& RecipeId : *CandidateRecipes)
+		{
+			const FSBCRecipeDefinition* Recipe = Data->FindRecipe(RecipeId);
+			if (Recipe && !IsUnpackageRecipe(*Recipe) && (!Node->bGenerator || Recipe->BuildingId == Node->BuildingId)) ++CompatibleRecipeCount;
+		}
+	}
+	FString RecipeButtonLabel = Node->RecipeName;
+	if (Node->bGenerator && Data)
+	{
+		if (const FSBCRecipeDefinition* Recipe = Data->FindRecipe(Node->RecipeId)) RecipeButtonLabel = GeneratorRecipeLabel(*Data, *Recipe);
+	}
 	const FSBCBuildingDefinition* Building = Data ? Data->FindBuilding(Node->BuildingId) : nullptr;
 	const int32 MaxSomersloops = Building ? Building->SloopSlots : 0;
 	const FString NodeId = Node->NodeId;
@@ -1124,13 +1265,13 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 					[
 						SNew(SComboButton)
 						.Visibility(!bCompactView && !Node->bRawResource ? EVisibility::Visible : EVisibility::Collapsed)
-						.IsEnabled(CandidateRecipes && CandidateRecipes->Num() > 1)
+						.IsEnabled(CompatibleRecipeCount > 1)
 						.OnGetMenuContent_Lambda([this, NodeId, ItemId]() { return BuildRecipeMenu(NodeId, ItemId); })
 						.ButtonContent()
 						[
 							SNew(STextBlock)
-							.Text(FText::FromString(Node->RecipeName))
-							.ToolTipText(FText::FromString(Node->RecipeName))
+							.Text(FText::FromString(RecipeButtonLabel))
+							.ToolTipText(FText::FromString(RecipeButtonLabel))
 							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 							.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
 						]

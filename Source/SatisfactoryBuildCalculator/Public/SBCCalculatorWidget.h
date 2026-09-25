@@ -47,6 +47,7 @@ private:
 	FVector2D PanelSize = FVector2D(1000.0f, 650.0f);
 	FString SearchText;
 	FString SelectedItemId;
+	FString SelectedGeneratorBuildingId;
 	TSet<FString> UnlockedRecipeIds;
 	TSet<FString> UnlockedItemIds;
 	TSet<FString> UnlockedBuildingIds;
@@ -71,6 +72,8 @@ private:
 	bool IsProductUnlocked(const FString& ItemId) const;
 	FText GetRecipeSyncStatus() const;
 	void SelectProduct(const FString& ItemId);
+	void SelectGenerator(const FString& BuildingId);
+	bool IsGeneratorBuildingUnlocked(const FString& BuildingId) const;
 	void CalculateSelected();
 	TSharedRef<SWidget> BuildRecipeMenu(FString NodeId, FString ItemId);
 	void SelectRecipeForNode(const FString& NodeId, const FString& RecipeId);

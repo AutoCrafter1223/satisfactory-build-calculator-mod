@@ -434,7 +434,8 @@ const FSBCRecipeDefinition* FSBCProductionCalculator::SelectRecipe(
 {
 	if (const FString* SelectedId = SelectedRecipes.Find(NodeId))
 	{
-		if (const FSBCRecipeDefinition* Selected = Data.FindRecipe(*SelectedId); Selected && Selected->OutputItemId == ItemId)
+		if (const FSBCRecipeDefinition* Selected = Data.FindRecipe(*SelectedId);
+			Selected && Selected->OutputItemId == ItemId && !Selected->Id.StartsWith(TEXT("Recipe_Unpackage"), ESearchCase::IgnoreCase))
 		{
 			return Selected;
 		}
@@ -444,9 +445,14 @@ const FSBCRecipeDefinition* FSBCProductionCalculator::SelectRecipe(
 	for (const FString& RecipeId : *Candidates)
 	{
 		const FSBCRecipeDefinition* Recipe = Data.FindRecipe(RecipeId);
-		if (Recipe && Recipe->bDefault) return Recipe;
+		if (Recipe && !Recipe->Id.StartsWith(TEXT("Recipe_Unpackage"), ESearchCase::IgnoreCase) && Recipe->bDefault) return Recipe;
 	}
-	return Candidates->IsEmpty() ? nullptr : Data.FindRecipe((*Candidates)[0]);
+	for (const FString& RecipeId : *Candidates)
+	{
+		const FSBCRecipeDefinition* Recipe = Data.FindRecipe(RecipeId);
+		if (Recipe && !Recipe->Id.StartsWith(TEXT("Recipe_Unpackage"), ESearchCase::IgnoreCase)) return Recipe;
+	}
+	return nullptr;
 }
 
 TSharedPtr<FSBCProductionNode> FSBCProductionCalculator::BuildNode(
