@@ -819,7 +819,7 @@ void USBCCalculatorWidget::RefreshSummary(const TSharedPtr<FSBCProductionNode>& 
 		TArray<FString> Parts;
 		for (const TPair<FString, TPair<double, FString>>& Pair : RawResources)
 		{
-			const FString Unit = Pair.Value.Value == TEXT("m3") ? TEXT("m³/min") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("/min"), TEXT("个/min"), TEXT("/min"));
+			const FString Unit = Pair.Value.Value == TEXT("m3") ? TEXT("m³/min") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("items/min"), TEXT("个/min"), TEXT("Stk./min"));
 			Parts.Add(FString::Printf(TEXT("%s %.2f %s"), *Pair.Key, Pair.Value.Key, *Unit));
 		}
 		Parts.Sort();
@@ -997,7 +997,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 {
 	const FString RateUnit = Node->Unit == TEXT("m3")
 		? TEXT("m³/min")
-		: (Node->bGenerator ? TEXT("MW") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("/min"), TEXT("个/min"), TEXT("/min")));
+		: (Node->bGenerator ? TEXT("MW") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("items/min"), TEXT("个/min"), TEXT("Stk./min")));
 	FString Detail;
 	if (Node->bRawResource)
 	{
@@ -1084,10 +1084,33 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
 					[
-						SNew(STextBlock)
-						.Text(FText::FromString(FString::Printf(TEXT("%.2f %s"), Node->RequiredRate, *RateUnit)))
-						.ColorAndOpacity(FLinearColor(0.95f, 0.97f, 0.98f))
-						.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 10 : 12))
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(FString::Printf(TEXT("%.2f %s"), Node->RequiredRate, *RateUnit)))
+							.ColorAndOpacity(FLinearColor(0.95f, 0.97f, 0.98f))
+							.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 10 : 12))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4.0f, 0.0f, 0.0f, 0.0f)
+						[
+							SNew(SButton)
+							.ContentPadding(FMargin(5.0f, 1.0f))
+							.Text(bSelected
+								? Text(TEXT("선택됨"), TEXT("Selected"), TEXT("已选择"), TEXT("Gewählt"))
+								: Text(TEXT("선택"), TEXT("Select"), TEXT("选择"), TEXT("Wählen")))
+							.OnClicked_Lambda([this, NodeId]() { SelectGoalNode(NodeId); return FReply::Handled(); })
+						]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4.0f, 0.0f, 0.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Visibility(bHasChildren ? EVisibility::Visible : EVisibility::Collapsed)
+							.ContentPadding(FMargin(5.0f, 1.0f))
+							.Text(bCollapsed
+								? Text(TEXT("펴기"), TEXT("Expand"), TEXT("展开"), TEXT("Aufklappen"))
+								: Text(TEXT("접기"), TEXT("Collapse"), TEXT("折叠"), TEXT("Einklappen")))
+							.OnClicked_Lambda([this, NodeId]() { ToggleNodeCollapsed(NodeId); return FReply::Handled(); })
+						]
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
 					[
@@ -1115,6 +1138,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 5.0f, 0.0f, 0.0f)
 					[
 						SNew(SHorizontalBox)
+						.Visibility(!bCompactView && !Node->bRawResource && !Node->bGenerator ? EVisibility::Visible : EVisibility::Collapsed)
 						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
 						[
 							SNew(STextBlock)
@@ -1144,29 +1168,6 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 							.Value(Node->Somersloops)
 							.Visibility(!bCompactView && !Node->bRawResource && !Node->bGenerator && MaxSomersloops > 0 ? EVisibility::Visible : EVisibility::Collapsed)
 							.OnValueCommitted_Lambda([this, NodeId](int32 Value, ETextCommit::Type) { SetNodeSomersloops(NodeId, Value); })
-						]
-						+ SHorizontalBox::Slot().FillWidth(1.0f)
-						[
-							SNew(SSpacer)
-						]
-						+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f, 0.0f, 0.0f, 0.0f)
-						[
-							SNew(SButton)
-							.ContentPadding(FMargin(5.0f, 1.0f))
-							.Text(bSelected
-								? Text(TEXT("선택됨"), TEXT("Selected"), TEXT("已选择"), TEXT("Gewählt"))
-								: Text(TEXT("선택"), TEXT("Select"), TEXT("选择"), TEXT("Wählen")))
-							.OnClicked_Lambda([this, NodeId]() { SelectGoalNode(NodeId); return FReply::Handled(); })
-						]
-						+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f, 0.0f, 0.0f, 0.0f)
-						[
-							SNew(SButton)
-							.Visibility(bHasChildren ? EVisibility::Visible : EVisibility::Collapsed)
-							.ContentPadding(FMargin(5.0f, 1.0f))
-							.Text(bCollapsed
-								? Text(TEXT("펴기"), TEXT("Expand"), TEXT("展开"), TEXT("Aufklappen"))
-								: Text(TEXT("접기"), TEXT("Collapse"), TEXT("折叠"), TEXT("Einklappen")))
-							.OnClicked_Lambda([this, NodeId]() { ToggleNodeCollapsed(NodeId); return FReply::Handled(); })
 						]
 					]
 				]
