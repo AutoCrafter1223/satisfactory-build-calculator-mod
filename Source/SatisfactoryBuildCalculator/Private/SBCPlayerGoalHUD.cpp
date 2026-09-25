@@ -60,12 +60,17 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		CalculatorWidget = CreateWidget<USBCCalculatorWidget>(PlayerController, USBCCalculatorWidget::StaticClass());
 		if (CalculatorWidget)
 		{
-			// The viewport slot does not exist until AddToViewport. Configure anchors
-			// afterwards so the window is centered instead of half off-screen.
+			// The viewport slot does not exist until AddToViewport. Use an absolute
+			// viewport center below instead of combining a center anchor with (0, 0),
+			// which places half of the widget outside the top-left of the screen.
 			CalculatorWidget->AddToViewport(100);
-			CalculatorWidget->SetAnchorsInViewport(FAnchors(0.5f, 0.5f));
+			CalculatorWidget->SetAnchorsInViewport(FAnchors(0.0f, 0.0f));
 			CalculatorWidget->SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
-			CalculatorWidget->SetPositionInViewport(FVector2D::ZeroVector, false);
+			int32 ViewportWidth = 0;
+			int32 ViewportHeight = 0;
+			PlayerController->GetViewportSize(ViewportWidth, ViewportHeight);
+			CalculatorWidget->SetPositionInViewport(
+				FVector2D(ViewportWidth * 0.5f, ViewportHeight * 0.5f), true);
 			CalculatorWidget->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
@@ -144,6 +149,14 @@ void ASBCPlayerGoalHUD::ToggleCalculatorWidget()
 {
 	if (!CalculatorWidget || !PlayerController) return;
 	const bool bOpen = CalculatorWidget->GetVisibility() == ESlateVisibility::Collapsed;
+	if (bOpen)
+	{
+		int32 ViewportWidth = 0;
+		int32 ViewportHeight = 0;
+		PlayerController->GetViewportSize(ViewportWidth, ViewportHeight);
+		CalculatorWidget->SetPositionInViewport(
+			FVector2D(ViewportWidth * 0.5f, ViewportHeight * 0.5f), true);
+	}
 	CalculatorWidget->SetVisibility(bOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	PlayerController->SetShowMouseCursor(bOpen);
 	if (bOpen)

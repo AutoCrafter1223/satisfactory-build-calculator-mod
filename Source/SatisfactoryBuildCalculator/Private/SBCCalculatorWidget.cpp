@@ -26,8 +26,8 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 
 	TSharedRef<SWidget> Result =
 		SNew(SBox)
-		.WidthOverride(900.0f)
-		.HeightOverride(620.0f)
+		.WidthOverride(800.0f)
+		.HeightOverride(540.0f)
 		[
 			SNew(SBorder)
 			.Padding(16.0f)
