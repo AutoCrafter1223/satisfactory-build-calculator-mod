@@ -470,10 +470,37 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 									.Text(Text(TEXT("선택 공정 목표 추가"), TEXT("Add selected branch"), TEXT("添加所选分支目标"), TEXT("Ausgewählten Zweig hinzufügen")))
 									.OnClicked_Lambda([this]()
 									{
-										OnRequestAddGoals.ExecuteIfBound();
+									OnRequestAddGoals.ExecuteIfBound();
+									return FReply::Handled();
+								})
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
+							[
+								SNew(SButton)
+								.Text_Lambda([this]()
+								{
+									const bool bAwaitingConfirmation = bClearGoalsConfirmationArmed &&
+										FPlatformTime::Seconds() <= ClearGoalsConfirmationExpiresAt;
+									return bAwaitingConfirmation
+										? Text(TEXT("한 번 더 누르세요"), TEXT("Confirm clear"), TEXT("再次点击确认"), TEXT("Löschen bestätigen"))
+										: Text(TEXT("목표 초기화"), TEXT("Clear goals"), TEXT("清空目标"), TEXT("Ziele löschen"));
+								})
+								.OnClicked_Lambda([this]()
+								{
+									const double Now = FPlatformTime::Seconds();
+									if (!bClearGoalsConfirmationArmed || Now > ClearGoalsConfirmationExpiresAt)
+									{
+										bClearGoalsConfirmationArmed = true;
+										ClearGoalsConfirmationExpiresAt = Now + 3.0;
 										return FReply::Handled();
-									})
-								]
+									}
+
+									bClearGoalsConfirmationArmed = false;
+									ClearGoalsConfirmationExpiresAt = 0.0;
+									OnRequestClearGoals.ExecuteIfBound();
+									return FReply::Handled();
+								})
+							]
 							]
 							+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 10.0f)
 							[
@@ -916,7 +943,7 @@ void USBCCalculatorWidget::BuildResultGraph(const TSharedPtr<FSBCProductionNode>
 	TArray<FGraphEntry> Entries;
 	TMap<FString, FVector2D> Positions;
 	const float CardWidth = bCompactView ? 225.0f : 315.0f;
-	const float CardHeight = bCompactView ? 120.0f : 190.0f;
+	const float CardHeight = bCompactView ? 105.0f : 165.0f;
 	const float HorizontalGap = 74.0f;
 	const float VerticalGap = 26.0f;
 	int32 MaxDepth = 0;

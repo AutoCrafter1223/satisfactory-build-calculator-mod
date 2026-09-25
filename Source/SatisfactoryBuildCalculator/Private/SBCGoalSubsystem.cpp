@@ -116,6 +116,48 @@ bool ASBCGoalSubsystem::RemoveGoal(AFGCharacterPlayer* RequestingPlayer, FGuid G
 	return true;
 }
 
+bool ASBCGoalSubsystem::ClearGoalsForPlayer(AFGCharacterPlayer* RequestingPlayer)
+{
+	if (!HasAuthority() || !IsValid(RequestingPlayer))
+	{
+		return false;
+	}
+
+	const FPlayerInfoHandle PlayerHandle = RequestingPlayer->GetPlayerInfoHandle();
+	TSet<FGuid> RemovedGoalIds;
+	for (const FSBCBuildGoal& Goal : Goals)
+	{
+		if (Goal.Owner.IsSameAccount(PlayerHandle))
+		{
+			RemovedGoalIds.Add(Goal.GoalId);
+		}
+	}
+	if (RemovedGoalIds.IsEmpty())
+	{
+		return false;
+	}
+
+	Goals.RemoveAll([&PlayerHandle](const FSBCBuildGoal& Goal)
+	{
+		return Goal.Owner.IsSameAccount(PlayerHandle);
+	});
+	TrackedBuildables.RemoveAll([&RemovedGoalIds](const FSBCTrackedBuildable& Tracked)
+	{
+		return RemovedGoalIds.Contains(Tracked.AssignedGoalId);
+	});
+	NewBuildableCandidates.RemoveAll([&PlayerHandle](const TObjectPtr<AFGBuildable>& Buildable)
+	{
+		return IsValid(Buildable) && Buildable->GetBuiltBy().IsSameAccount(PlayerHandle);
+	});
+	AmbiguousBuildables.RemoveAll([&PlayerHandle](const TObjectPtr<AFGBuildable>& Buildable)
+	{
+		return IsValid(Buildable) && Buildable->GetBuiltBy().IsSameAccount(PlayerHandle);
+	});
+
+	MarkGoalsChanged();
+	return true;
+}
+
 bool ASBCGoalSubsystem::SetGoalTargetCount(AFGCharacterPlayer* RequestingPlayer, FGuid GoalId, int32 TargetCount)
 {
 	const int32 GoalIndex = FindGoalIndex(GoalId);

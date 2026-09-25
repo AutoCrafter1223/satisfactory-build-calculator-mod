@@ -51,6 +51,7 @@ private:
 	void ToggleCalculatorWidget();
 	void CloseCalculatorWidget();
 	void AddCalculatorPlanToGoals();
+	void ClearPlayerGoals();
 	void UpdateCalculatorLayout();
 	void AddLookedAtGoal();
 	void ChangeSelection(int32 Delta);

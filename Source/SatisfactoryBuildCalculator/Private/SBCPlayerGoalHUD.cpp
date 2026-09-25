@@ -79,6 +79,7 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		{
 			CalculatorWidget->SetOnRequestClose(FSimpleDelegate::CreateUObject(this, &ASBCPlayerGoalHUD::CloseCalculatorWidget));
 			CalculatorWidget->SetOnRequestAddGoals(FSimpleDelegate::CreateUObject(this, &ASBCPlayerGoalHUD::AddCalculatorPlanToGoals));
+			CalculatorWidget->SetOnRequestClearGoals(FSimpleDelegate::CreateUObject(this, &ASBCPlayerGoalHUD::ClearPlayerGoals));
 			// The viewport slot does not exist until AddToViewport. Use an absolute
 			// viewport center below instead of combining a center anchor with (0, 0),
 			// which places half of the widget outside the top-left of the screen.
@@ -129,6 +130,14 @@ void ASBCPlayerGoalHUD::AddCalculatorPlanToGoals()
 		{
 			RCO->ServerAddGoalFromClass(*BuildableClass, Request.TargetCount);
 		}
+	}
+}
+
+void ASBCPlayerGoalHUD::ClearPlayerGoals()
+{
+	if (USBCRemoteCallObject* RCO = GetRemoteCallObject())
+	{
+		RCO->ServerClearGoals();
 	}
 }
 

@@ -31,6 +31,7 @@ public:
 	void RefreshGameState();
 	void SetOnRequestClose(FSimpleDelegate InDelegate) { OnRequestClose = MoveTemp(InDelegate); }
 	void SetOnRequestAddGoals(FSimpleDelegate InDelegate) { OnRequestAddGoals = MoveTemp(InDelegate); }
+	void SetOnRequestClearGoals(FSimpleDelegate InDelegate) { OnRequestClearGoals = MoveTemp(InDelegate); }
 	TArray<FSBCCalculatedGoalRequest> GetGoalPlan() const;
 
 protected:
@@ -60,6 +61,9 @@ private:
 	bool bCompactView = false;
 	FSimpleDelegate OnRequestClose;
 	FSimpleDelegate OnRequestAddGoals;
+	FSimpleDelegate OnRequestClearGoals;
+	bool bClearGoalsConfirmationArmed = false;
+	double ClearGoalsConfirmationExpiresAt = 0.0;
 	TSharedPtr<FSBCProductionNode> LastCalculatedRoot;
 
 	void RefreshProductList();

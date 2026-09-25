@@ -16,7 +16,10 @@ namespace SBCLocalization
 {
 	inline ESBCLanguage GetCurrentLanguage()
 	{
-		const FString Culture = FInternationalization::Get().GetCurrentCulture()->GetName().ToLower();
+		// Satisfactory can change its display language independently of the Windows
+		// locale.  GetCurrentLanguage follows that in-game selection, while
+		// GetCurrentCulture may continue to report the operating-system culture.
+		const FString Culture = FInternationalization::Get().GetCurrentLanguage()->GetName().ToLower();
 		if (Culture.StartsWith(TEXT("ko"))) return ESBCLanguage::Korean;
 		if (Culture.StartsWith(TEXT("zh"))) return ESBCLanguage::ChineseSimplified;
 		if (Culture.StartsWith(TEXT("de"))) return ESBCLanguage::German;

@@ -37,6 +37,9 @@ public:
 	bool RemoveGoal(AFGCharacterPlayer* RequestingPlayer, FGuid GoalId);
 
 	UFUNCTION(BlueprintCallable, Category = "Satisfactory Build Calculator|Goals")
+	bool ClearGoalsForPlayer(AFGCharacterPlayer* RequestingPlayer);
+
+	UFUNCTION(BlueprintCallable, Category = "Satisfactory Build Calculator|Goals")
 	bool SetGoalTargetCount(AFGCharacterPlayer* RequestingPlayer, FGuid GoalId, int32 TargetCount);
 
 	UFUNCTION(BlueprintCallable, Category = "Satisfactory Build Calculator|Goals")

@@ -33,6 +33,9 @@ public:
 	void ServerRemoveGoal(FGuid GoalId);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerClearGoals();
+
+	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerSetGoalTargetCount(FGuid GoalId, int32 TargetCount);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)

@@ -74,6 +74,14 @@ void USBCRemoteCallObject::ServerRemoveGoal_Implementation(FGuid GoalId)
 	}
 }
 
+void USBCRemoteCallObject::ServerClearGoals_Implementation()
+{
+	if (ASBCGoalSubsystem* Goals = ASBCGoalSubsystem::Get(this))
+	{
+		Goals->ClearGoalsForPlayer(GetOwnerPlayerCharacter());
+	}
+}
+
 void USBCRemoteCallObject::ServerSetGoalTargetCount_Implementation(FGuid GoalId, int32 TargetCount)
 {
 	if (ASBCGoalSubsystem* Goals = ASBCGoalSubsystem::Get(this))

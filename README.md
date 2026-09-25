@@ -27,8 +27,9 @@ All four function-key shortcuts can be changed from the mod's in-game configurat
 - Provides reset-view and focus-selected-card controls, plus detailed and compact card views with text expand/collapse controls.
 - Summarizes machine count, raw resources, power consumption, and generation.
 - Selecting a card and pressing the goal button adds only that card and its descendants to construction goals.
+- The adjacent clear button removes only the current player's goals after a second confirmation click.
 
-The calculator UI supports Korean, English, Simplified Chinese, and German, selected from the current game culture. Item, recipe, and building names use Satisfactory's own localized display names; unsupported UI cultures fall back to English.
+The calculator UI supports Korean, English, Simplified Chinese, and German, selected from the current in-game language. Item, recipe, and building names use Satisfactory's own localized display names; unsupported UI languages fall back to English.
 Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboard selection is visibly highlighted.
 
 ## Tracking rules
