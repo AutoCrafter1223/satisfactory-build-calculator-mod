@@ -19,7 +19,12 @@ public:
 	void ServerAddGoalFromBuildable(AFGBuildable* TemplateBuildable, int32 TargetCount);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
-	void ServerAddGoalFromRecipe(TSubclassOf<UFGRecipe> RecipeClass, int32 TargetCount, int32 PowerShards, int32 Somersloops);
+	void ServerAddGoalFromRecipe(
+		TSubclassOf<UFGRecipe> RecipeClass,
+		TSubclassOf<AFGBuildable> BuildableClass,
+		int32 TargetCount,
+		int32 PowerShards,
+		int32 Somersloops);
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void ServerAddGoalFromClass(TSubclassOf<AFGBuildable> BuildableClass, int32 TargetCount);

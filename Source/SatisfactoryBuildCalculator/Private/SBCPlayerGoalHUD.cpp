@@ -104,9 +104,16 @@ void ASBCPlayerGoalHUD::AddCalculatorPlanToGoals()
 	{
 		if (Request.bRequiresRecipe)
 		{
-			if (const TSubclassOf<UFGRecipe>* RecipeClass = RecipesById.Find(Request.RecipeId))
+			const TSubclassOf<UFGRecipe>* RecipeClass = RecipesById.Find(Request.RecipeId);
+			const TSubclassOf<AFGBuildable>* BuildableClass = BuildingsById.Find(Request.BuildingId);
+			if (RecipeClass && BuildableClass)
 			{
-				RCO->ServerAddGoalFromRecipe(*RecipeClass, Request.TargetCount, Request.PowerShards, Request.Somersloops);
+				RCO->ServerAddGoalFromRecipe(
+					*RecipeClass,
+					*BuildableClass,
+					Request.TargetCount,
+					Request.PowerShards,
+					Request.Somersloops);
 			}
 		}
 		else if (const TSubclassOf<AFGBuildable>* BuildableClass = BuildingsById.Find(Request.BuildingId))

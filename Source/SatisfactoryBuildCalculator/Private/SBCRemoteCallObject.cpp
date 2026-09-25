@@ -32,24 +32,25 @@ void USBCRemoteCallObject::ServerAddGoalFromBuildable_Implementation(AFGBuildabl
 
 void USBCRemoteCallObject::ServerAddGoalFromRecipe_Implementation(
 	TSubclassOf<UFGRecipe> RecipeClass,
+	TSubclassOf<AFGBuildable> BuildableClass,
 	int32 TargetCount,
 	int32 PowerShards,
 	int32 Somersloops)
 {
 	AFGCharacterPlayer* Player = GetOwnerPlayerCharacter();
 	ASBCGoalSubsystem* Goals = ASBCGoalSubsystem::Get(this);
-	if (!IsValid(Player) || !RecipeClass || !IsValid(Goals)) return;
+	if (!IsValid(Player) || !RecipeClass || !BuildableClass || !IsValid(Goals)) return;
 
-	TSubclassOf<AFGBuildable> BuildableClass;
+	bool bRecipeSupportsBuilding = false;
 	for (const TSubclassOf<UObject>& Producer : UFGRecipe::GetProducedIn(RecipeClass))
 	{
-		if (Producer && Producer->IsChildOf(AFGBuildable::StaticClass()))
+		if (Producer == BuildableClass)
 		{
-			BuildableClass = TSubclassOf<AFGBuildable>(Producer.Get());
+			bRecipeSupportsBuilding = true;
 			break;
 		}
 	}
-	if (BuildableClass)
+	if (bRecipeSupportsBuilding)
 	{
 		Goals->AddGoal(Player, BuildableClass, RecipeClass, TargetCount, PowerShards, Somersloops);
 	}
