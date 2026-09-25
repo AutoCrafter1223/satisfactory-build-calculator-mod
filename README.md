@@ -2,6 +2,16 @@
 
 In-game production calculator and construction goal tracker for Satisfactory.
 
+## Screenshots
+
+### Production calculator
+
+![Production calculator showing a connected production chain](docs/images/production-calculator.png)
+
+### Construction goals
+
+![Construction goal tracker showing building progress](docs/images/construction-goals.png)
+
 ## Installation
 
 The public release is intended to be installed through Satisfactory Mod Manager. SMM installs the compatible Satisfactory Mod Loader dependency and places the mod files correctly. Manual installation is intended only for development and troubleshooting.

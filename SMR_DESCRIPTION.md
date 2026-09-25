@@ -2,6 +2,16 @@
 
 Plan production chains inside Satisfactory and turn the result into construction goals that update while you build.
 
+## Screenshots
+
+### Production calculator
+
+![Production calculator showing a connected production chain](https://raw.githubusercontent.com/AutoCrafter1223/satisfactory-build-calculator-mod/main/docs/images/production-calculator.png)
+
+### Construction goals
+
+![Construction goal tracker showing building progress](https://raw.githubusercontent.com/AutoCrafter1223/satisfactory-build-calculator-mod/main/docs/images/construction-goals.png)
+
 ## Main features
 
 - Calculates complete production chains as connected, readable cards.
