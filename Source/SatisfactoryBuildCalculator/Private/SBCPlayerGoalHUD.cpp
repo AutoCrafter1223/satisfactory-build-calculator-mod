@@ -1,6 +1,7 @@
 #include "SBCPlayerGoalHUD.h"
 
 #include "Buildables/FGBuildable.h"
+#include "Components/InputComponent.h"
 #include "Engine/World.h"
 #include "FGCharacterPlayer.h"
 #include "FGPlayerController.h"
@@ -13,7 +14,8 @@
 ASBCPlayerGoalHUD::ASBCPlayerGoalHUD()
 {
 	PrimaryActorTick.bCanEverTick = true;
-	PrimaryActorTick.TickInterval = 0.05f;
+	// Input must be sampled every frame. A 50 ms interval can miss a quick key press.
+	PrimaryActorTick.TickInterval = 0.0f;
 	bReplicates = false;
 }
 
@@ -33,6 +35,15 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 	{
 		return false;
 	}
+	if (!bCalculatorToggleBound)
+	{
+		EnableInput(PlayerController);
+		if (InputComponent)
+		{
+			InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &ASBCPlayerGoalHUD::ToggleCalculatorWidget);
+			bCalculatorToggleBound = true;
+		}
+	}
 
 	if (!IsValid(GoalWidget))
 	{
@@ -49,10 +60,12 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 		CalculatorWidget = CreateWidget<USBCCalculatorWidget>(PlayerController, USBCCalculatorWidget::StaticClass());
 		if (CalculatorWidget)
 		{
+			// The viewport slot does not exist until AddToViewport. Configure anchors
+			// afterwards so the window is centered instead of half off-screen.
+			CalculatorWidget->AddToViewport(100);
 			CalculatorWidget->SetAnchorsInViewport(FAnchors(0.5f, 0.5f));
 			CalculatorWidget->SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
 			CalculatorWidget->SetPositionInViewport(FVector2D::ZeroVector, false);
-			CalculatorWidget->AddToViewport(100);
 			CalculatorWidget->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
@@ -68,7 +81,6 @@ void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)
 	}
 
 	if (PlayerController->WasInputKeyJustPressed(EKeys::F8)) ToggleWidget();
-	if (PlayerController->WasInputKeyJustPressed(EKeys::F6)) ToggleCalculatorWidget();
 	if (PlayerController->WasInputKeyJustPressed(EKeys::F7)) AddLookedAtGoal();
 	if (PlayerController->WasInputKeyJustPressed(EKeys::Up)) ChangeSelection(-1);
 	if (PlayerController->WasInputKeyJustPressed(EKeys::Down)) ChangeSelection(1);

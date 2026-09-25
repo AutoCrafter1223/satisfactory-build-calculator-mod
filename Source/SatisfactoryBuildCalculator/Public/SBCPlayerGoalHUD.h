@@ -38,6 +38,7 @@ private:
 
 	int32 SelectedGoalIndex = 0;
 	float RefreshAccumulator = 0.0f;
+	bool bCalculatorToggleBound = false;
 
 	bool EnsureLocalPlayer();
 	USBCRemoteCallObject* GetRemoteCallObject() const;
