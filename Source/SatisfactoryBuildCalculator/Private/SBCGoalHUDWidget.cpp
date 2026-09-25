@@ -198,7 +198,7 @@ void USBCGoalHUDWidget::RefreshGoals()
 		[
 			SAssignNew(GoalCard, SBorder)
 			.Padding(bSelected ? FMargin(2.0f) : FMargin(0.0f))
-			.BorderBackgroundColor(bSelected ? FLinearColor(1.0f, 0.55f, 0.08f, 0.95f) : FLinearColor::Transparent)
+			.BorderBackgroundColor(bSelected ? FLinearColor(1.0f, 0.74f, 0.18f, 1.0f) : FLinearColor::Transparent)
 			[
 				SNew(SBorder)
 				.Padding(FMargin(8.0f, 6.0f))
