@@ -40,6 +40,8 @@ private:
 	int32 SelectedGoalIndex = 0;
 	bool bCalculatorToggleBound = false;
 	bool bGoalsDelegateBound = false;
+	bool bGoalBatchDelegateBound = false;
+	TWeakObjectPtr<USBCRemoteCallObject> BoundGoalBatchRCO;
 	bool bReleaseEscapeCapture = false;
 	bool bCalculatorClosedByWidget = false;
 	FInputKeyBinding* CalculatorEscapeBinding = nullptr;
@@ -59,6 +61,7 @@ private:
 	void ToggleManualCompletion();
 	void RemoveSelectedGoal();
 	void LinkLookedAtBuildable();
+	void HandleGoalBatchResult(int32 ExpectedCount, int32 AddedCount, const TArray<FString>& FailedEntries);
 
 	UFUNCTION()
 	void HandleGoalsChanged();

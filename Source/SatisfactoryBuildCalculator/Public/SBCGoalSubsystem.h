@@ -31,7 +31,12 @@ public:
 		TSubclassOf<UFGRecipe> RecipeClass,
 		int32 TargetCount,
 		int32 RequiredPowerShards,
-		int32 RequiredSomersloops);
+		int32 RequiredSomersloops,
+		FGuid GoalGroupId,
+		const FString& HierarchyKey,
+		const FString& ParentHierarchyKey,
+		int32 HierarchyDepth,
+		int32 HierarchyOrder);
 
 	UFUNCTION(BlueprintCallable, Category = "Satisfactory Build Calculator|Goals")
 	bool RemoveGoal(AFGCharacterPlayer* RequestingPlayer, FGuid GoalId);
@@ -73,17 +78,20 @@ public:
 	virtual void PostLoadGame_Implementation(int32 SaveVersion, int32 GameVersion) override;
 	virtual void GatherDependencies_Implementation(TArray<UObject*>& OutDependentObjects) override;
 	virtual bool NeedTransform_Implementation() override { return false; }
-	virtual bool ShouldSave_Implementation() const override { return true; }
+	// Goals are intentionally session-only. Keeping the save interface while
+	// returning false lets older saves load the known class without writing a
+	// new mod record on subsequent saves.
+	virtual bool ShouldSave_Implementation() const override { return false; }
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
-	UPROPERTY(SaveGame, ReplicatedUsing = OnRep_Goals)
+	UPROPERTY(Transient, ReplicatedUsing = OnRep_Goals)
 	TArray<FSBCBuildGoal> Goals;
 
-	UPROPERTY(SaveGame)
+	UPROPERTY(Transient)
 	TArray<FSBCTrackedBuildable> TrackedBuildables;
 
 	UPROPERTY(Transient)

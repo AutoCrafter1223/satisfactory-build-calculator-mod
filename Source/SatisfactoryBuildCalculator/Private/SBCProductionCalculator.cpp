@@ -228,6 +228,7 @@ bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FStrin
 		if (FSBCItemDefinition* Existing = Items.Find(ItemId))
 		{
 			Existing->LocalizedName = DisplayName;
+			Existing->DescriptorClass = ItemClass;
 			return;
 		}
 		FSBCItemDefinition Item;
@@ -236,6 +237,7 @@ bool FSBCProductionData::SynchronizeRuntimeRecipes(UObject* WorldContext, FStrin
 		Item.NameEn = DisplayName;
 		Item.LocalizedName = DisplayName;
 		Item.Unit = UnitForItem(ItemClass);
+		Item.DescriptorClass = ItemClass;
 		Items.Add(Item.Id, MoveTemp(Item));
 	};
 	auto UpdateBuilding = [this, RecipeManager](TSubclassOf<AFGBuildableFactory> FactoryClass)

@@ -9,6 +9,7 @@
 #include "FGRecipeManager.h"
 #include "Resources/FGItemDescriptor.h"
 #include "Buildables/FGBuildable.h"
+#include "Engine/Texture2D.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Input/Events.h"
 #include "InputCoreTypes.h"
@@ -21,6 +22,8 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SConstraintCanvas.h"
 #include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SWrapBox.h"
+#include "Widgets/Images/SImage.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Rendering/DrawElements.h"
@@ -204,6 +207,29 @@ private:
 
 namespace
 {
+	struct FSBCSummaryEntry
+	{
+		FString ItemId;
+		FString Name;
+		double Rate = 0.0;
+		FString Unit;
+	};
+
+	FString RateUnit(ESBCLanguage Language, const FString& Unit)
+	{
+		if (Unit == TEXT("m3"))
+		{
+			return Language == ESBCLanguage::Korean ? TEXT("m³/분") : TEXT("m³/min");
+		}
+		return SBCLocalization::String(Language, TEXT("개/분"), TEXT("item/min"), TEXT("个/分钟"), TEXT("Stk./min"));
+	}
+
+	FString FormatRate(ESBCLanguage Language, double Rate, const FString& Unit)
+	{
+		const TCHAR* Separator = Language == ESBCLanguage::English ? TEXT(" ") : TEXT("");
+		return FString::Printf(TEXT("%.2f%s%s"), Rate, Separator, *RateUnit(Language, Unit));
+	}
+
 	bool IsGeneratorRecipe(const FSBCRecipeDefinition& Recipe)
 	{
 		return Recipe.Kind == TEXT("generator") || Recipe.Kind == TEXT("geothermal") || Recipe.Kind == TEXT("augmenter");
@@ -231,8 +257,8 @@ namespace
 
 	void GatherProductionSummary(
 		const TSharedPtr<FSBCProductionNode>& Node,
-		TMap<FString, TPair<double, FString>>& RawResources,
-		TMap<FString, TPair<double, FString>>& RequiredProducts,
+		TMap<FString, FSBCSummaryEntry>& RawResources,
+		TMap<FString, FSBCSummaryEntry>& RequiredProducts,
 		int32& Machines,
 		double& ConsumptionMW,
 		double& GenerationMW,
@@ -241,17 +267,21 @@ namespace
 		if (!Node) return;
 		if (Node->bRawResource)
 		{
-			TPair<double, FString>& Entry = RawResources.FindOrAdd(Node->ItemName);
-			Entry.Key += Node->RequiredRate;
-			Entry.Value = Node->Unit;
+			FSBCSummaryEntry& Entry = RawResources.FindOrAdd(Node->ItemId);
+			Entry.ItemId = Node->ItemId;
+			Entry.Name = Node->ItemName;
+			Entry.Rate += Node->RequiredRate;
+			Entry.Unit = Node->Unit;
 		}
 		else
 		{
 			if (!bRoot)
 			{
-				TPair<double, FString>& Entry = RequiredProducts.FindOrAdd(Node->ItemName);
-				Entry.Key += Node->RequiredRate;
-				Entry.Value = Node->Unit;
+				FSBCSummaryEntry& Entry = RequiredProducts.FindOrAdd(Node->ItemId);
+				Entry.ItemId = Node->ItemId;
+				Entry.Name = Node->ItemName;
+				Entry.Rate += Node->RequiredRate;
+				Entry.Unit = Node->Unit;
 			}
 			Machines += Node->InstalledBuildingCount;
 			ConsumptionMW += Node->PowerMW;
@@ -263,13 +293,21 @@ namespace
 		}
 	}
 
-	void GatherGoalPlan(const TSharedPtr<FSBCProductionNode>& Node, TMap<FString, FSBCCalculatedGoalRequest>& Requests)
+	void GatherGoalPlan(
+		const TSharedPtr<FSBCProductionNode>& Node,
+		TMap<FString, FSBCCalculatedGoalRequest>& Requests,
+		const FString& ParentHierarchyKey,
+		int32 HierarchyDepth,
+		int32& NextOrder)
 	{
 		if (!Node) return;
+		FString ChildParentKey = ParentHierarchyKey;
+		int32 ChildDepth = HierarchyDepth;
 		if (!Node->bRawResource && !Node->BuildingId.IsEmpty() && Node->InstalledBuildingCount > 0)
 		{
 			const FString Identity = Node->bGenerator ? Node->BuildingId : Node->RecipeId;
 			const FString Key = FString::Printf(TEXT("%s|%d|%d"), *Identity, Node->PowerShards, Node->Somersloops);
+			const bool bNewRequest = !Requests.Contains(Key);
 			FSBCCalculatedGoalRequest& Request = Requests.FindOrAdd(Key);
 			Request.RecipeId = Node->RecipeId;
 			Request.BuildingId = Node->BuildingId;
@@ -277,10 +315,19 @@ namespace
 			Request.PowerShards = Node->PowerShards;
 			Request.Somersloops = Node->Somersloops;
 			Request.bRequiresRecipe = !Node->bGenerator;
+			if (bNewRequest)
+			{
+				Request.HierarchyKey = Key;
+				Request.ParentHierarchyKey = ParentHierarchyKey;
+				Request.HierarchyDepth = HierarchyDepth;
+				Request.HierarchyOrder = NextOrder++;
+			}
+			ChildParentKey = Key;
+			ChildDepth = HierarchyDepth + 1;
 		}
 		for (const TSharedPtr<FSBCProductionNode>& Child : Node->Children)
 		{
-			GatherGoalPlan(Child, Requests);
+			GatherGoalPlan(Child, Requests, ChildParentKey, ChildDepth, NextOrder);
 		}
 	}
 
@@ -299,6 +346,31 @@ namespace
 FText USBCCalculatorWidget::Text(const TCHAR* Korean, const TCHAR* English, const TCHAR* Chinese, const TCHAR* German) const
 {
 	return SBCLocalization::Text(Language, Korean, English, Chinese, German);
+}
+
+const FSlateBrush* USBCCalculatorWidget::GetItemIconBrush(const FString& ItemId, float Size)
+{
+	if (const TSharedPtr<FSlateBrush>* Existing = ItemIconBrushes.Find(ItemId))
+	{
+		return Existing->Get();
+	}
+
+	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+	const FSBCItemDefinition* Item = Data ? Data->FindItem(ItemId) : nullptr;
+	UTexture2D* Texture = Item && Item->DescriptorClass ? UFGItemDescriptor::GetSmallIcon(Item->DescriptorClass) : nullptr;
+	if (!IsValid(Texture))
+	{
+		return nullptr;
+	}
+
+	ItemIconTextures.Add(ItemId, Texture);
+	TSharedPtr<FSlateBrush> Brush = MakeShared<FSlateBrush>();
+	Brush->SetResourceObject(Texture);
+	Brush->ImageSize = FVector2D(Size, Size);
+	Brush->DrawAs = ESlateBrushDrawType::Image;
+	ItemIconBrushes.Add(ItemId, Brush);
+	return Brush.Get();
 }
 
 TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
@@ -334,6 +406,54 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 							.Text_Lambda([this]() { return GetRecipeSyncStatus(); })
 							.ColorAndOpacity(FLinearColor(0.38f, 0.86f, 0.72f))
 							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text_Lambda([this]()
+							{
+								return bAllowLockedRecipes
+									? Text(TEXT("전체 제조법"), TEXT("All recipes"), TEXT("全部配方"), TEXT("Alle Rezepte"))
+									: Text(TEXT("해금만"), TEXT("Unlocked only"), TEXT("仅已解锁"), TEXT("Nur freigesch."));
+							})
+							.ToolTipText_Lambda([this]()
+							{
+								return bAllowLockedRecipes
+									? Text(TEXT("잠긴 제조법도 선택할 수 있습니다."), TEXT("Locked recipes can also be selected."), TEXT("也可以选择未解锁的配方。"), TEXT("Gesperrte Rezepte können gewählt werden."))
+									: Text(TEXT("현재 세이브에서 해금된 제조법만 선택합니다."), TEXT("Only recipes unlocked in this save can be selected."), TEXT("只能选择当前存档中已解锁的配方。"), TEXT("Nur in diesem Spielstand freigeschaltete Rezepte."));
+							})
+							.OnClicked_Lambda([this]()
+							{
+								bAllowLockedRecipes = !bAllowLockedRecipes;
+								if (!bAllowLockedRecipes)
+								{
+									FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+									const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+									for (auto It = SelectedRecipes.CreateIterator(); It; ++It)
+									{
+										const FSBCRecipeDefinition* Recipe = Data ? Data->FindRecipe(It.Value()) : nullptr;
+										if (!Recipe || !IsRecipeUnlocked(*Recipe)) It.RemoveCurrent();
+									}
+								}
+								CalculateSelected();
+								return FReply::Handled();
+							})
+						]
+						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text_Lambda([this]()
+							{
+								return bHideLockedProducts
+									? Text(TEXT("잠김 표시"), TEXT("Show locked"), TEXT("显示未解锁"), TEXT("Gesperrte zeigen"))
+									: Text(TEXT("잠김 숨김"), TEXT("Hide locked"), TEXT("隐藏未解锁"), TEXT("Gesperrte ausblenden"));
+							})
+							.OnClicked_Lambda([this]()
+							{
+								bHideLockedProducts = !bHideLockedProducts;
+								RefreshProductList();
+								return FReply::Handled();
+							})
 						]
 						+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
 						[
@@ -395,6 +515,19 @@ TSharedRef<SWidget> USBCCalculatorWidget::RebuildWidget()
 							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 11))
 						]
 					]
+				]
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+				[
+					SNew(STextBlock)
+					.Visibility_Lambda([this]() { return GoalOperationStatus.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+					.Text_Lambda([this]() { return FText::FromString(GoalOperationStatus); })
+					.ColorAndOpacity_Lambda([this]()
+					{
+						return bGoalOperationFailed
+							? FSlateColor(FLinearColor(1.0f, 0.38f, 0.22f))
+							: FSlateColor(FLinearColor(0.38f, 0.92f, 0.68f));
+					})
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
 				]
 				+ SVerticalBox::Slot().FillHeight(1.0f)
 				[
@@ -750,6 +883,10 @@ void USBCCalculatorWidget::RefreshProductList()
 
 	for (const FProductListEntry& Entry : Matches)
 	{
+		if (bHideLockedProducts && !Entry.bUnlocked)
+		{
+			continue;
+		}
 		const FString Locked = SBCLocalization::String(Language, TEXT("잠김"), TEXT("Locked"), TEXT("未解锁"), TEXT("Gesperrt"));
 		const FText Name = FText::FromString(Entry.bUnlocked
 			? Entry.Name
@@ -876,18 +1013,53 @@ TArray<FSBCCalculatedGoalRequest> USBCCalculatorWidget::GetGoalPlan() const
 {
 	TMap<FString, FSBCCalculatedGoalRequest> Requests;
 	TSharedPtr<FSBCProductionNode> SelectedRoot = FindProductionNode(LastCalculatedRoot, SelectedGoalNodeId);
-	GatherGoalPlan(SelectedRoot ? SelectedRoot : LastCalculatedRoot, Requests);
+	int32 NextOrder = 0;
+	GatherGoalPlan(SelectedRoot ? SelectedRoot : LastCalculatedRoot, Requests, FString(), 0, NextOrder);
 	TArray<FSBCCalculatedGoalRequest> Result;
 	Requests.GenerateValueArray(Result);
+	Result.Sort([](const FSBCCalculatedGoalRequest& A, const FSBCCalculatedGoalRequest& B)
+	{
+		return A.HierarchyOrder < B.HierarchyOrder;
+	});
 	return Result;
+}
+
+void USBCCalculatorWidget::SetGoalAddResult(
+	int32 ExpectedCount,
+	int32 AddedCount,
+	const TArray<FString>& FailedEntries)
+{
+	bGoalOperationFailed = AddedCount != ExpectedCount || !FailedEntries.IsEmpty();
+	if (!bGoalOperationFailed)
+	{
+		GoalOperationStatus = SBCLocalization::Format(
+			SBCLocalization::String(Language,
+				TEXT("건설 목표 {0}/{1}개를 추가했습니다."),
+				TEXT("Added {0}/{1} construction goals."),
+				TEXT("已添加 {0}/{1} 个建造目标。"),
+				TEXT("{0}/{1} Bauziele hinzugefügt.")),
+			AddedCount, ExpectedCount);
+	}
+	else
+	{
+		const FString FailedLabel = FailedEntries.IsEmpty() ? TEXT("-") : FString::Join(FailedEntries, TEXT(", "));
+		GoalOperationStatus = SBCLocalization::Format(
+			SBCLocalization::String(Language,
+				TEXT("목표 추가 중단: 예상 {0}개, 추가 {1}개 · 확인 필요: {2}"),
+				TEXT("Goal import stopped: {0} expected, {1} added · Check: {2}"),
+				TEXT("目标导入已停止：预计 {0}，已添加 {1} · 请检查：{2}"),
+				TEXT("Zielimport gestoppt: {0} erwartet, {1} hinzugefügt · Prüfen: {2}")),
+			ExpectedCount, AddedCount, FailedLabel);
+	}
+	InvalidateLayoutAndVolatility();
 }
 
 void USBCCalculatorWidget::RefreshSummary(const TSharedPtr<FSBCProductionNode>& Root)
 {
 	if (!SummaryBox.IsValid()) return;
 	SummaryBox->ClearChildren();
-	TMap<FString, TPair<double, FString>> RawResources;
-	TMap<FString, TPair<double, FString>> RequiredProducts;
+	TMap<FString, FSBCSummaryEntry> RawResources;
+	TMap<FString, FSBCSummaryEntry> RequiredProducts;
 	int32 Machines = 0;
 	double ConsumptionMW = 0.0;
 	double GenerationMW = 0.0;
@@ -909,39 +1081,93 @@ void USBCCalculatorWidget::RefreshSummary(const TSharedPtr<FSBCProductionNode>& 
 
 	if (!RawResources.IsEmpty())
 	{
-		TArray<FString> Parts;
-		for (const TPair<FString, TPair<double, FString>>& Pair : RawResources)
+		TArray<FSBCSummaryEntry> Parts;
+		RawResources.GenerateValueArray(Parts);
+		Parts.Sort([](const FSBCSummaryEntry& A, const FSBCSummaryEntry& B) { return A.Name < B.Name; });
+		TSharedRef<SWrapBox> ItemFlow = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(12.0f, 3.0f));
+		for (const FSBCSummaryEntry& Entry : Parts)
 		{
-			const FString Unit = Pair.Value.Value == TEXT("m3") ? TEXT("m³/min") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("items/min"), TEXT("个/min"), TEXT("Stk./min"));
-			Parts.Add(FString::Printf(TEXT("%s %.2f %s"), *Pair.Key, Pair.Value.Key, *Unit));
+			const FSlateBrush* IconBrush = GetItemIconBrush(Entry.ItemId, 16.0f);
+			ItemFlow->AddSlot()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
+				[
+					SNew(SBox).WidthOverride(16.0f).HeightOverride(16.0f)
+					.Visibility(IconBrush ? EVisibility::Visible : EVisibility::Collapsed)
+					[
+						SNew(SImage).Image(IconBrush)
+					]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(FString::Printf(TEXT("%s %s"), *Entry.Name, *FormatRate(Language, Entry.Rate, Entry.Unit))))
+					.ColorAndOpacity(FLinearColor(0.68f, 0.78f, 0.80f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				]
+			];
 		}
-		Parts.Sort();
 		SummaryBox->AddSlot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, 0.0f)
 		[
-			SNew(STextBlock)
-			.Text(FText::FromString(SBCLocalization::String(Language, TEXT("원자재: "), TEXT("Raw: "), TEXT("原材料："), TEXT("Rohstoffe: ")) + FString::Join(Parts, TEXT("  ·  "))))
-			.ColorAndOpacity(FLinearColor(0.68f, 0.78f, 0.80f))
-			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-			.AutoWrapText(true)
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(SBCLocalization::String(Language, TEXT("원자재"), TEXT("Raw"), TEXT("原材料"), TEXT("Rohstoffe"))))
+				.ColorAndOpacity(FLinearColor(0.68f, 0.78f, 0.80f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
+			[
+				ItemFlow
+			]
 		];
 	}
 
 	if (!RequiredProducts.IsEmpty())
 	{
-		TArray<FString> Parts;
-		for (const TPair<FString, TPair<double, FString>>& Pair : RequiredProducts)
+		TArray<FSBCSummaryEntry> Parts;
+		RequiredProducts.GenerateValueArray(Parts);
+		Parts.Sort([](const FSBCSummaryEntry& A, const FSBCSummaryEntry& B) { return A.Name < B.Name; });
+		TSharedRef<SWrapBox> ItemFlow = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(12.0f, 3.0f));
+		for (const FSBCSummaryEntry& Entry : Parts)
 		{
-			const FString Unit = Pair.Value.Value == TEXT("m3") ? TEXT("m³/min") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("items/min"), TEXT("个/min"), TEXT("Stk./min"));
-			Parts.Add(FString::Printf(TEXT("%s %.2f %s"), *Pair.Key, Pair.Value.Key, *Unit));
+			const FSlateBrush* IconBrush = GetItemIconBrush(Entry.ItemId, 16.0f);
+			ItemFlow->AddSlot()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 4.0f, 0.0f)
+				[
+					SNew(SBox).WidthOverride(16.0f).HeightOverride(16.0f)
+					.Visibility(IconBrush ? EVisibility::Visible : EVisibility::Collapsed)
+					[
+						SNew(SImage).Image(IconBrush)
+					]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(FString::Printf(TEXT("%s %s"), *Entry.Name, *FormatRate(Language, Entry.Rate, Entry.Unit))))
+					.ColorAndOpacity(FLinearColor(0.72f, 0.82f, 0.84f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				]
+			];
 		}
-		Parts.Sort();
 		SummaryBox->AddSlot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
 		[
-			SNew(STextBlock)
-			.Text(FText::FromString(SBCLocalization::String(Language, TEXT("필요 제품: "), TEXT("Required products: "), TEXT("所需产品："), TEXT("Benötigte Produkte: ")) + FString::Join(Parts, TEXT("  ·  "))))
-			.ColorAndOpacity(FLinearColor(0.72f, 0.82f, 0.84f))
-			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-			.AutoWrapText(true)
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(SBCLocalization::String(Language, TEXT("필요 제품"), TEXT("Required products"), TEXT("所需产品"), TEXT("Benötigte Produkte"))))
+				.ColorAndOpacity(FLinearColor(0.72f, 0.82f, 0.84f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
+			[
+				ItemFlow
+			]
 		];
 	}
 }
@@ -963,6 +1189,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildRecipeMenu(FString NodeId, FStrin
 		const TSharedPtr<FSBCProductionNode> CurrentNode = FindProductionNode(LastCalculatedRoot, NodeId);
 		if (CurrentNode && CurrentNode->bGenerator && Recipe->BuildingId != CurrentNode->BuildingId) continue;
 		const bool bUnlocked = IsRecipeUnlocked(*Recipe);
+		const bool bSelectable = bUnlocked || bAllowLockedRecipes;
 		const FString Label = IsGeneratorRecipe(*Recipe)
 			? GeneratorRecipeLabel(*Data, *Recipe)
 			: (Recipe->LocalizedName.IsEmpty() ? Recipe->NameEn : Recipe->LocalizedName);
@@ -970,7 +1197,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildRecipeMenu(FString NodeId, FStrin
 		Menu->AddSlot().AutoHeight().Padding(2.0f)
 		[
 			SNew(SButton)
-			.IsEnabled(bUnlocked)
+			.IsEnabled(bSelectable)
 			.ContentPadding(FMargin(8.0f, 4.0f))
 			.Text(FText::FromString(bUnlocked
 				? Label
@@ -987,6 +1214,13 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildRecipeMenu(FString NodeId, FStrin
 
 void USBCCalculatorWidget::SelectRecipeForNode(const FString& NodeId, const FString& RecipeId)
 {
+	if (!bAllowLockedRecipes)
+	{
+		FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
+		const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
+		const FSBCRecipeDefinition* Recipe = Data ? Data->FindRecipe(RecipeId) : nullptr;
+		if (!Recipe || !IsRecipeUnlocked(*Recipe)) return;
+	}
 	SelectedRecipes.Add(NodeId, RecipeId);
 	CalculateSelected();
 }
@@ -1111,9 +1345,6 @@ void USBCCalculatorWidget::BuildResultGraph(const TSharedPtr<FSBCProductionNode>
 
 TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCProductionNode>& Node, const FString& ParentName)
 {
-	const FString RateUnit = Node->Unit == TEXT("m3")
-		? TEXT("m³/min")
-		: (Node->bGenerator ? TEXT("MW") : SBCLocalization::String(Language, TEXT("개/min"), TEXT("items/min"), TEXT("个/min"), TEXT("Stk./min")));
 	FString Detail;
 	if (Node->bRawResource)
 	{
@@ -1122,7 +1353,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 	else if (Node->bGenerator)
 	{
 		Detail = SBCLocalization::Format(
-			SBCLocalization::String(Language, TEXT("{0} · 설치 {1}기"), TEXT("{0} · {1} installed"), TEXT("{0} · 安装 {1} 台"), TEXT("{0} · {1} installiert")),
+			SBCLocalization::String(Language, TEXT("{0} · 설치 {1}기"), TEXT("{0} · build {1}"), TEXT("{0} · 建 {1} 台"), TEXT("{0} · Bau {1}")),
 			Node->BuildingName, Node->InstalledBuildingCount);
 	}
 	else
@@ -1130,7 +1361,7 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 		Detail = SBCLocalization::Format(
 			SBCLocalization::String(Language,
 				TEXT("{0} · 계산 {1}대 · 설치 {2}대 · {3} MW"),
-				TEXT("{0} · {1} calculated · {2} installed · {3} MW"),
+				TEXT("{0} · {1} required · build {2} · {3} MW"),
 				TEXT("{0} · 计算 {1} 台 · 安装 {2} 台 · {3} MW"),
 				TEXT("{0} · {1} berechnet · {2} installiert · {3} MW")),
 			Node->BuildingName, FString::Printf(TEXT("%.2f"), Node->ExactBuildingCount), Node->InstalledBuildingCount, FString::Printf(TEXT("%.1f"), Node->PowerMW));
@@ -1139,8 +1370,56 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 	const FString CompactDetail = Node->bRawResource
 		? SBCLocalization::String(Language, TEXT("외부 입력"), TEXT("External input"), TEXT("外部输入"), TEXT("Externe Zufuhr"))
 		: SBCLocalization::Format(
-			SBCLocalization::String(Language, TEXT("{0} · 설치 {1}대"), TEXT("{0} · {1} installed"), TEXT("{0} · 安装 {1} 台"), TEXT("{0} · {1} installiert")),
+			SBCLocalization::String(Language, TEXT("{0} · 설치 {1}대"), TEXT("{0} · build {1}"), TEXT("{0} · 建 {1} 台"), TEXT("{0} · Bau {1}")),
 			Node->BuildingName, Node->InstalledBuildingCount);
+	FString ShortStats;
+	if (!Node->bRawResource && !Node->bGenerator)
+	{
+		ShortStats = SBCLocalization::Format(
+			SBCLocalization::String(Language,
+				TEXT("필요 {0} / 설치 {1} · {2} MW"),
+				TEXT("req. {0} / build {1} · {2} MW"),
+				TEXT("需 {0} / 建 {1} · {2} MW"),
+				TEXT("Bed. {0} / Bau {1} · {2} MW")),
+			FString::Printf(TEXT("%.2f"), Node->ExactBuildingCount), Node->InstalledBuildingCount, FString::Printf(TEXT("%.1f"), Node->PowerMW));
+	}
+	else if (Node->bGenerator)
+	{
+		ShortStats = SBCLocalization::Format(
+			SBCLocalization::String(Language, TEXT("설치 {0}기"), TEXT("build {0}"), TEXT("建 {0} 台"), TEXT("Bau {0}")),
+			Node->InstalledBuildingCount);
+	}
+
+	TSharedRef<SWidget> DetailWidget = SNew(STextBlock)
+		.Text(FText::FromString(bCompactView ? CompactDetail : Detail))
+		.ToolTipText(FText::FromString(Detail))
+		.ColorAndOpacity(FLinearColor(0.58f, 0.75f, 0.78f))
+		.Font(FCoreStyle::GetDefaultFontStyle("Regular", bCompactView ? 8 : 9))
+		.AutoWrapText(false)
+		.OverflowPolicy(ETextOverflowPolicy::Ellipsis);
+	if (!bCompactView && !Node->bRawResource)
+	{
+		DetailWidget = SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, 6.0f, 0.0f)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(Node->BuildingName))
+				.ToolTipText(FText::FromString(Node->BuildingName))
+				.ColorAndOpacity(FLinearColor(0.58f, 0.75f, 0.78f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+				.AutoWrapText(false)
+				.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+			]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(ShortStats))
+				.ToolTipText(FText::FromString(Detail))
+				.ColorAndOpacity(FLinearColor(0.66f, 0.80f, 0.82f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+				.AutoWrapText(false)
+			];
+	}
 	const FMargin CardPadding = bCompactView ? FMargin(8.0f, 6.0f) : FMargin(10.0f, 8.0f);
 	FSatisfactoryBuildCalculatorModule* Module = FModuleManager::GetModulePtr<FSatisfactoryBuildCalculatorModule>(TEXT("SatisfactoryBuildCalculator"));
 	const TSharedPtr<FSBCProductionData> Data = Module ? Module->GetProductionData() : nullptr;
@@ -1168,10 +1447,11 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 	const bool bSelected = SelectedGoalNodeId == NodeId;
 	const bool bRoot = NodeId == TEXT("root");
 	const FLinearColor Accent = GetBuildingColor(Node);
+	const FSlateBrush* ItemIconBrush = GetItemIconBrush(Node->ItemId, bCompactView ? 20.0f : 24.0f);
 	return SNew(SBorder)
-	.Padding(bSelected ? 2.0f : 1.0f)
+	.Padding(bSelected ? 3.0f : 1.0f)
 	.BorderBackgroundColor(bSelected
-		? FLinearColor(1.0f, 0.62f, 0.12f, 0.98f)
+		? FLinearColor(1.0f, 0.80f, 0.18f, 1.0f)
 		: (bRoot ? FLinearColor(0.88f, 0.52f, 0.14f, 0.82f) : FLinearColor(0.24f, 0.34f, 0.38f, 0.88f)))
 	[
 		SNew(SBorder)
@@ -1204,13 +1484,46 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 					]
 					+ SVerticalBox::Slot().AutoHeight()
 					[
-						SNew(STextBlock)
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 6.0f, 0.0f)
+						[
+							SNew(SBox)
+							.WidthOverride(bCompactView ? 20.0f : 24.0f)
+							.HeightOverride(bCompactView ? 20.0f : 24.0f)
+							.Visibility(ItemIconBrush ? EVisibility::Visible : EVisibility::Collapsed)
+							[
+								SNew(SImage).Image(ItemIconBrush)
+							]
+						]
+						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
 							.Text(FText::FromString(Node->ItemName))
 							.ToolTipText(FText::FromString(Node->ItemName))
 							.ColorAndOpacity(bRoot ? FLinearColor(1.0f, 0.70f, 0.27f) : FLinearColor::White)
 							.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 11 : (bRoot ? 14 : 12)))
 							.AutoWrapText(false)
 							.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+						]
+						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4.0f, 0.0f, 0.0f, 0.0f)
+						[
+							SNew(SBox).WidthOverride(84.0f).HeightOverride(22.0f)
+							[
+								SNew(SButton)
+								.ContentPadding(FMargin(3.0f, 1.0f))
+								.HAlign(HAlign_Center)
+								.VAlign(VAlign_Center)
+								.OnClicked_Lambda([this, NodeId]() { SelectGoalNode(NodeId); return FReply::Handled(); })
+								[
+									SNew(STextBlock)
+									.Text(bSelected
+										? Text(TEXT("선택됨"), TEXT("Selected"), TEXT("已选择"), TEXT("Gewählt"))
+										: Text(TEXT("선택"), TEXT("Select"), TEXT("选择"), TEXT("Wählen")))
+									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+									.Justification(ETextJustify::Center)
+								]
+							]
+						]
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 3.0f, 0.0f, 0.0f)
 					[
@@ -1218,37 +1531,36 @@ TSharedRef<SWidget> USBCCalculatorWidget::BuildResultCard(const TSharedPtr<FSBCP
 						+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
 						[
 							SNew(STextBlock)
-							.Text(FText::FromString(FString::Printf(TEXT("%.2f %s"), Node->RequiredRate, *RateUnit)))
+							.Text(FText::FromString(Node->bGenerator
+								? FString::Printf(TEXT("%.2fMW"), Node->RequiredRate)
+								: FormatRate(Language, Node->RequiredRate, Node->Unit)))
 							.ColorAndOpacity(FLinearColor(0.95f, 0.97f, 0.98f))
 							.Font(FCoreStyle::GetDefaultFontStyle("Bold", bCompactView ? 10 : 12))
 						]
 						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4.0f, 0.0f, 0.0f, 0.0f)
 						[
-							SNew(SButton)
-							.ContentPadding(FMargin(5.0f, 1.0f))
-							.Text(bSelected
-								? Text(TEXT("선택됨"), TEXT("Selected"), TEXT("已选择"), TEXT("Gewählt"))
-								: Text(TEXT("선택"), TEXT("Select"), TEXT("选择"), TEXT("Wählen")))
-							.OnClicked_Lambda([this, NodeId]() { SelectGoalNode(NodeId); return FReply::Handled(); })
-						]
-						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4.0f, 0.0f, 0.0f, 0.0f)
-						[
-							SNew(SButton)
+							SNew(SBox).WidthOverride(84.0f).HeightOverride(22.0f)
 							.Visibility(bHasChildren ? EVisibility::Visible : EVisibility::Collapsed)
-							.ContentPadding(FMargin(5.0f, 1.0f))
-							.Text(bCollapsed
-								? Text(TEXT("펴기"), TEXT("Expand"), TEXT("展开"), TEXT("Aufklappen"))
-								: Text(TEXT("접기"), TEXT("Collapse"), TEXT("折叠"), TEXT("Einklappen")))
-							.OnClicked_Lambda([this, NodeId]() { ToggleNodeCollapsed(NodeId); return FReply::Handled(); })
+							[
+								SNew(SButton)
+								.ContentPadding(FMargin(3.0f, 1.0f))
+								.HAlign(HAlign_Center)
+								.VAlign(VAlign_Center)
+								.OnClicked_Lambda([this, NodeId]() { ToggleNodeCollapsed(NodeId); return FReply::Handled(); })
+								[
+									SNew(STextBlock)
+									.Text(bCollapsed
+										? Text(TEXT("펴기"), TEXT("Expand"), TEXT("展开"), TEXT("Aufklappen"))
+										: Text(TEXT("접기"), TEXT("Collapse"), TEXT("折叠"), TEXT("Einklappen")))
+									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+									.Justification(ETextJustify::Center)
+								]
+							]
 						]
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 0.0f)
 					[
-						SNew(STextBlock)
-						.Text(FText::FromString(bCompactView ? CompactDetail : Detail))
-						.ColorAndOpacity(FLinearColor(0.58f, 0.75f, 0.78f))
-						.Font(FCoreStyle::GetDefaultFontStyle("Regular", bCompactView ? 8 : 9))
-						.AutoWrapText(true)
+						DetailWidget
 					]
 					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
 					[

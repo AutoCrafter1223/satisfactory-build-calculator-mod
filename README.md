@@ -50,7 +50,7 @@ Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboar
 
 ## Tracking rules
 
-- Goals are stored per player in the save.
+- Goals are kept per player in volatile session memory and are not written into save files.
 - Newly constructed buildings are counted only when their building class, recipe, Power Shard count, and Somersloop count match.
 - Dismantling a linked building decreases progress.
 - Recipe or enhancement changes cause the building to be reassigned.
@@ -60,7 +60,7 @@ Its two-line shortcut guide stays fixed while the goal list scrolls, and keyboar
 
 ## Development status
 
-Version `1.0.0` is the first public release candidate. The native runtime, save/replication layer, multiplayer remote calls, automatic tracker, compact HUD, configurable hotkeys, and production calculator compile for `FactoryGameSteam` Shipping.
+Version `1.0.1` is the current release-candidate build. The native runtime, multiplayer remote calls, automatic tracker, compact HUD, configurable hotkeys, and production calculator compile for both `FactoryGameSteam` and `FactoryGameEGS` Shipping.
 
 Built against Satisfactory build `502094` and Satisfactory Mod Loader `3.12.0`. The first public package targets the Windows game client, including normal single-player and listen-server play. Dedicated-server packages are intentionally omitted until separate Windows and Linux server testing is complete.
 

@@ -7,6 +7,9 @@
 class AFGCharacterPlayer;
 class SVerticalBox;
 class SScrollBox;
+class UTexture2D;
+struct FSlateBrush;
+struct FSBCBuildGoal;
 
 UCLASS()
 class SATISFACTORYBUILDCALCULATOR_API USBCGoalHUDWidget final : public UUserWidget
@@ -29,4 +32,9 @@ private:
 	double SelectedHighlightUntil = 0.0;
 	uint32 LastRenderedStateHash = 0;
 	bool bHasRenderedState = false;
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UTexture2D>> ItemIconTextures;
+	TMap<FString, TSharedPtr<FSlateBrush>> ItemIconBrushes;
+
+	const FSlateBrush* GetGoalIconBrush(const FSBCBuildGoal& Goal, float Size = 22.0f);
 };

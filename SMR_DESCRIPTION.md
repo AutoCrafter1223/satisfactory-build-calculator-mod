@@ -20,7 +20,7 @@ Plan production chains inside Satisfactory and turn the result into construction
 - Shows machine counts, ingredients, raw resources, power consumption, and power generation.
 - Adds a selected process card and its descendants to the construction-goal HUD.
 - Tracks newly placed matching buildings automatically and updates progress when linked buildings are dismantled or reconfigured.
-- Stores goals per player and includes multiplayer remote-call support.
+- Keeps goals per player in volatile session memory, without writing mod goal data into save files.
 - Includes detailed/compact views, free panning, wheel zoom, and configurable shortcuts.
 - UI languages: Korean, English, Simplified Chinese, and German. Game item and building names use Satisfactory's current language.
 
@@ -36,6 +36,10 @@ Plan production chains inside Satisfactory and turn the result into construction
 - `Delete`: remove the selected goal
 
 F5-F8 can be changed from the mod's in-game configuration page.
+
+## Test status
+
+This release has not yet completed extensive real-world or multiplayer testing. Back up important saves before use. Construction goals and tracking remain session-only and are not written into save files.
 
 ## Compatibility
 

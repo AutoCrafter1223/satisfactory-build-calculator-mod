@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "SBCLocalization.h"
 
+class UFGItemDescriptor;
+
 struct FSBCIngredientDefinition
 {
 	FString ItemId;
@@ -17,6 +19,7 @@ struct FSBCItemDefinition
 	FString LocalizedName;
 	FString Unit = TEXT("items");
 	bool bRawResource = false;
+	TSubclassOf<UFGItemDescriptor> DescriptorClass;
 };
 
 struct FSBCBuildingDefinition

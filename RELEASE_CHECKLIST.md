@@ -3,7 +3,7 @@
 ## Automated checks completed locally
 
 - [x] Plugin descriptor parses as valid JSON.
-- [x] Public release version is `1.0.0`.
+- [x] Public release version is `1.0.1`.
 - [x] Game version range starts at build `502094`.
 - [x] SML dependency is declared as `^3.12.0`.
 - [x] Windows game client is selected as the verified first-release target.
@@ -18,6 +18,6 @@
 - [ ] Confirm goal creation, reset, save/load, building placement, dismantle, and manual completion.
 - [ ] Confirm host and client behavior in multiplayer.
 - [ ] Install the Linux cross-compile toolchain and confirm Windows/Linux dedicated-server startup before adding dedicated-server targets.
-- [ ] Capture current in-game screenshots for the SMR description.
-- [ ] Create the SMR page with the permanent mod reference `SatisfactoryBuildCalculator`.
+- [x] Capture current in-game screenshots for the SMR description.
+- [x] Create the SMR page with the permanent mod reference `SatisfactoryBuildCalculator`.
 - [ ] Upload `SatisfactoryBuildCalculator.zip`, review compatibility, then publish.

@@ -8,6 +8,8 @@
 
 class SVerticalBox;
 class SSBCPanGraph;
+class UTexture2D;
+struct FSlateBrush;
 struct FSBCProductionNode;
 
 struct FSBCCalculatedGoalRequest
@@ -18,6 +20,10 @@ struct FSBCCalculatedGoalRequest
 	int32 PowerShards = 0;
 	int32 Somersloops = 0;
 	bool bRequiresRecipe = true;
+	FString HierarchyKey;
+	FString ParentHierarchyKey;
+	int32 HierarchyDepth = 0;
+	int32 HierarchyOrder = 0;
 };
 
 UCLASS()
@@ -33,6 +39,7 @@ public:
 	void SetOnRequestAddGoals(FSimpleDelegate InDelegate) { OnRequestAddGoals = MoveTemp(InDelegate); }
 	void SetOnRequestClearGoals(FSimpleDelegate InDelegate) { OnRequestClearGoals = MoveTemp(InDelegate); }
 	TArray<FSBCCalculatedGoalRequest> GetGoalPlan() const;
+	void SetGoalAddResult(int32 ExpectedCount, int32 AddedCount, const TArray<FString>& FailedEntries);
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -60,12 +67,19 @@ private:
 	ESBCLanguage Language = ESBCLanguage::English;
 	bool bRecipeStateReady = false;
 	bool bCompactView = false;
+	bool bHideLockedProducts = false;
+	bool bAllowLockedRecipes = false;
 	FSimpleDelegate OnRequestClose;
 	FSimpleDelegate OnRequestAddGoals;
 	FSimpleDelegate OnRequestClearGoals;
 	bool bClearGoalsConfirmationArmed = false;
 	double ClearGoalsConfirmationExpiresAt = 0.0;
+	FString GoalOperationStatus;
+	bool bGoalOperationFailed = false;
 	TSharedPtr<FSBCProductionNode> LastCalculatedRoot;
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<UTexture2D>> ItemIconTextures;
+	TMap<FString, TSharedPtr<FSlateBrush>> ItemIconBrushes;
 
 	void RefreshProductList();
 	bool IsRecipeUnlocked(const struct FSBCRecipeDefinition& Recipe) const;
@@ -86,5 +100,6 @@ private:
 	void ToggleNodeCollapsed(const FString& NodeId);
 	void SelectGoalNode(const FString& NodeId);
 	FLinearColor GetBuildingColor(const TSharedPtr<FSBCProductionNode>& Node) const;
+	const FSlateBrush* GetItemIconBrush(const FString& ItemId, float Size = 24.0f);
 	FText Text(const TCHAR* Korean, const TCHAR* English, const TCHAR* Chinese = nullptr, const TCHAR* German = nullptr) const;
 };

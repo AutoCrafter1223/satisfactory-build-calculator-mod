@@ -76,7 +76,12 @@ FGuid ASBCGoalSubsystem::AddGoal(
 	TSubclassOf<UFGRecipe> RecipeClass,
 	int32 TargetCount,
 	int32 RequiredPowerShards,
-	int32 RequiredSomersloops)
+	int32 RequiredSomersloops,
+	FGuid GoalGroupId,
+	const FString& HierarchyKey,
+	const FString& ParentHierarchyKey,
+	int32 HierarchyDepth,
+	int32 HierarchyOrder)
 {
 	if (!HasAuthority() || !IsValid(GoalOwner) || !BuildableClass)
 	{
@@ -91,6 +96,11 @@ FGuid ASBCGoalSubsystem::AddGoal(
 	Goal.TargetCount = FMath::Max(1, TargetCount);
 	Goal.RequiredPowerShards = FMath::Clamp(RequiredPowerShards, 0, 3);
 	Goal.RequiredSomersloops = FMath::Max(0, RequiredSomersloops);
+	Goal.GoalGroupId = GoalGroupId;
+	Goal.HierarchyKey = HierarchyKey;
+	Goal.ParentHierarchyKey = ParentHierarchyKey;
+	Goal.HierarchyDepth = FMath::Max(0, HierarchyDepth);
+	Goal.HierarchyOrder = FMath::Max(0, HierarchyOrder);
 	MarkGoalsChanged();
 	return Goal.GoalId;
 }
@@ -229,7 +239,7 @@ TArray<FSBCBuildGoal> ASBCGoalSubsystem::GetGoalsForPlayer(AFGCharacterPlayer* P
 	const FPlayerInfoHandle PlayerHandle = Player->GetPlayerInfoHandle();
 	for (const FSBCBuildGoal& Goal : Goals)
 	{
-		if (Goal.Owner.IsSameAccount(PlayerHandle))
+		if (Goal.Owner.IsSameAccount(PlayerHandle) && !Goal.IsComplete())
 		{
 			Result.Add(Goal);
 		}
@@ -495,19 +505,18 @@ void ASBCGoalSubsystem::OnRep_Goals()
 
 void ASBCGoalSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVersion)
 {
-	TrackedBuildables.RemoveAll([](const FSBCTrackedBuildable& Entry) { return !IsValid(Entry.Buildable); });
-	RefreshTracking();
+	// Discard any goal state that may have been serialized by versions up to
+	// 1.0.1. From this version onward all calculator goals are volatile.
+	Goals.Reset();
+	TrackedBuildables.Reset();
+	NewBuildableCandidates.Reset();
+	AmbiguousBuildables.Reset();
+	MarkGoalsChanged();
 }
 
 void ASBCGoalSubsystem::GatherDependencies_Implementation(TArray<UObject*>& OutDependentObjects)
 {
-	for (const FSBCTrackedBuildable& Tracked : TrackedBuildables)
-	{
-		if (IsValid(Tracked.Buildable))
-		{
-			OutDependentObjects.Add(Tracked.Buildable);
-		}
-	}
+	// Volatile tracking never adds buildables to the save dependency graph.
 }
 
 void ASBCGoalSubsystem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

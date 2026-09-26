@@ -60,6 +60,16 @@ bool ASBCPlayerGoalHUD::EnsureLocalPlayer()
 			bGoalsDelegateBound = true;
 		}
 	}
+	if (USBCRemoteCallObject* RCO = GetRemoteCallObject(); RCO && BoundGoalBatchRCO.Get() != RCO)
+	{
+		if (USBCRemoteCallObject* PreviousRCO = BoundGoalBatchRCO.Get())
+		{
+			PreviousRCO->OnGoalBatchResult.RemoveAll(this);
+		}
+		RCO->OnGoalBatchResult.AddUObject(this, &ASBCPlayerGoalHUD::HandleGoalBatchResult);
+		BoundGoalBatchRCO = RCO;
+		bGoalBatchDelegateBound = true;
+	}
 
 	if (!IsValid(GoalWidget))
 	{
@@ -98,39 +108,87 @@ void ASBCPlayerGoalHUD::AddCalculatorPlanToGoals()
 	if (!CalculatorWidget) return;
 	USBCRemoteCallObject* RCO = GetRemoteCallObject();
 	AFGRecipeManager* RecipeManager = AFGRecipeManager::Get(this);
-	if (!RCO || !RecipeManager) return;
+	if (!RCO || !RecipeManager)
+	{
+		CalculatorWidget->SetGoalAddResult(1, 0, {TEXT("Recipe manager or network object")});
+		return;
+	}
+
+	const TArray<FSBCCalculatedGoalRequest> Plan = CalculatorWidget->GetGoalPlan();
+	if (Plan.IsEmpty())
+	{
+		CalculatorWidget->SetGoalAddResult(1, 0, {TEXT("No production facility cards")});
+		return;
+	}
+
+	auto NormalizeClassId = [](FString Value)
+	{
+		Value.ReplaceInline(TEXT("Default__"), TEXT(""), ESearchCase::IgnoreCase);
+		int32 Separator = INDEX_NONE;
+		if (Value.FindLastChar(TEXT('.'), Separator)) Value = Value.Mid(Separator + 1);
+		if (Value.FindLastChar(TEXT('/'), Separator)) Value = Value.Mid(Separator + 1);
+		return Value.ToLower();
+	};
 
 	TMap<FString, TSubclassOf<UFGRecipe>> RecipesById;
 	for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllRecipes())
 	{
-		if (RecipeClass) RecipesById.Add(RecipeClass->GetName(), RecipeClass);
+		if (RecipeClass) RecipesById.Add(NormalizeClassId(RecipeClass->GetName()), RecipeClass);
 	}
 	TMap<FString, TSubclassOf<AFGBuildable>> BuildingsById;
 	for (const TSubclassOf<AFGBuildable>& BuildableClass : RecipeManager->GetAvailableBuildingsOfType<AFGBuildable>())
 	{
-		if (BuildableClass) BuildingsById.Add(BuildableClass->GetName(), BuildableClass);
+		if (BuildableClass) BuildingsById.Add(NormalizeClassId(BuildableClass->GetName()), BuildableClass);
 	}
-	for (const FSBCCalculatedGoalRequest& Request : CalculatorWidget->GetGoalPlan())
+	// Some valid producers are not returned by the "available buildings" list in
+	// every game state. Index producer classes from recipes as a second source.
+	for (const TPair<FString, TSubclassOf<UFGRecipe>>& RecipePair : RecipesById)
 	{
-		if (Request.bRequiresRecipe)
+		for (const TSubclassOf<UObject>& Producer : UFGRecipe::GetProducedIn(RecipePair.Value))
 		{
-			const TSubclassOf<UFGRecipe>* RecipeClass = RecipesById.Find(Request.RecipeId);
-			const TSubclassOf<AFGBuildable>* BuildableClass = BuildingsById.Find(Request.BuildingId);
-			if (RecipeClass && BuildableClass)
+			UClass* ProducerClass = Producer.Get();
+			if (ProducerClass && ProducerClass->IsChildOf(AFGBuildable::StaticClass()))
 			{
-				RCO->ServerAddGoalFromRecipe(
-					*RecipeClass,
-					*BuildableClass,
-					Request.TargetCount,
-					Request.PowerShards,
-					Request.Somersloops);
+				BuildingsById.FindOrAdd(NormalizeClassId(ProducerClass->GetName())) = ProducerClass;
 			}
 		}
-		else if (const TSubclassOf<AFGBuildable>* BuildableClass = BuildingsById.Find(Request.BuildingId))
-		{
-			RCO->ServerAddGoalFromClass(*BuildableClass, Request.TargetCount);
-		}
 	}
+
+	const FGuid GoalGroupId = FGuid::NewGuid();
+	TArray<FSBCGoalBatchEntry> Batch;
+	TArray<FString> ResolutionFailures;
+	Batch.Reserve(Plan.Num());
+	for (const FSBCCalculatedGoalRequest& Request : Plan)
+	{
+		const TSubclassOf<UFGRecipe>* RecipeClass = Request.bRequiresRecipe
+			? RecipesById.Find(NormalizeClassId(Request.RecipeId))
+			: nullptr;
+		const TSubclassOf<AFGBuildable>* BuildableClass = BuildingsById.Find(NormalizeClassId(Request.BuildingId));
+		if ((Request.bRequiresRecipe && !RecipeClass) || !BuildableClass)
+		{
+			ResolutionFailures.Add(FString::Printf(TEXT("%s / %s"), *Request.RecipeId, *Request.BuildingId));
+			continue;
+		}
+
+		FSBCGoalBatchEntry& Entry = Batch.AddDefaulted_GetRef();
+		Entry.RecipeClass = RecipeClass ? *RecipeClass : nullptr;
+		Entry.BuildableClass = *BuildableClass;
+		Entry.TargetCount = Request.TargetCount;
+		Entry.PowerShards = Request.PowerShards;
+		Entry.Somersloops = Request.Somersloops;
+		Entry.HierarchyKey = Request.HierarchyKey;
+		Entry.ParentHierarchyKey = Request.ParentHierarchyKey;
+		Entry.HierarchyDepth = Request.HierarchyDepth;
+		Entry.HierarchyOrder = Request.HierarchyOrder;
+	}
+
+	if (Batch.Num() != Plan.Num() || !ResolutionFailures.IsEmpty())
+	{
+		CalculatorWidget->SetGoalAddResult(Plan.Num(), 0, ResolutionFailures);
+		return;
+	}
+
+	RCO->ServerAddGoalBatch(Batch, GoalGroupId);
 }
 
 void ASBCPlayerGoalHUD::ClearPlayerGoals()
@@ -199,6 +257,12 @@ void ASBCPlayerGoalHUD::Tick(float DeltaSeconds)
 
 void ASBCPlayerGoalHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (USBCRemoteCallObject* RCO = BoundGoalBatchRCO.Get())
+	{
+		RCO->OnGoalBatchResult.RemoveAll(this);
+	}
+	BoundGoalBatchRCO.Reset();
+	bGoalBatchDelegateBound = false;
 	if (bGoalsDelegateBound)
 	{
 		if (ASBCGoalSubsystem* Goals = ASBCGoalSubsystem::Get(this))
@@ -216,6 +280,17 @@ void ASBCPlayerGoalHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		CalculatorWidget->RemoveFromParent();
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+void ASBCPlayerGoalHUD::HandleGoalBatchResult(
+	int32 ExpectedCount,
+	int32 AddedCount,
+	const TArray<FString>& FailedEntries)
+{
+	if (CalculatorWidget)
+	{
+		CalculatorWidget->SetGoalAddResult(ExpectedCount, AddedCount, FailedEntries);
+	}
 }
 
 USBCRemoteCallObject* ASBCPlayerGoalHUD::GetRemoteCallObject() const
